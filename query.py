@@ -57,4 +57,10 @@ for r in st.find(Stop, srch):
     print '%s (%i): %s' % (r.label, r.number, r.name)
     for pu in r.upcoming_pickups(int(sys.argv[2])):
         m = (pu.arrival - n) / 60
-        print "%s %s in %um (%s)" % (pu.trip.route.name, pu.trip.headsign, m, pu.arrival_s())
+        print "%s %s in %um (%s) (%i)" % (pu.trip.route.name, pu.trip.headsign, m, pu.arrival_s(), pu.sequence)
+        print '-------'
+        for tpu in pu.trip.next_pickups_from_pickup(pu, 5):
+            print '%s (%i)' % (tpu.stop.name, tpu.sequence)
+        print '-------'
+        for tpu in pu.trip.next_pickups_from_now(5):
+            print '%s (%i)' % (tpu.stop.name, tpu.sequence)

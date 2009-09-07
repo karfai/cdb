@@ -53,8 +53,8 @@ def add_pickup(cur, cache, parts):
     stop_id = cache['stops'][parts[3]]
     
     cur.execute(
-        'INSERT INTO pickups (arrival, departure, trip_id, stop_id) VALUES (?,?,?,?)',
-        [time_to_secs(parts[1]), time_to_secs(parts[2]), trip_id, stop_id]
+        'INSERT INTO pickups (arrival, departure, sequence, trip_id, stop_id) VALUES (?,?,?,?,?)',
+        [time_to_secs(parts[1]), time_to_secs(parts[2]), int(parts[4]), trip_id, stop_id]
         )
 
 def add_service_period(cur, cache, parts):
