@@ -17,7 +17,7 @@
 
 import pygtk
 pygtk.require('2.0')
-import gtk
+import glib, gtk
 
 import re
 from storm.locals import *
@@ -47,6 +47,10 @@ srch_pats = [
     ('([a-zA-Z]{2}[0-9]{3})', search_label),
     ('(\w+)',                 search_all),
 ]
+
+def format_minutes(m):
+    rv = '%i minute%s' % (m, (m > 1) and 's' or '')
+    return (m > 60) and '%i:%02i' % (m / 60, m % 60) or rv
 
 class Results(object):
     def __init__(self):
@@ -99,7 +103,7 @@ class Model(object):
 
     def _format_arrival(self, m):
         fmt = (m < 0) and 'Should have arrived %s ago' or 'Arriving in %s'
-        ms = (m > 60) and '%i:%02i' % (m / 60, m % 60) or '%i minutes' % m
+        ms = format_minutes(m)
         return fmt % ms
 
     def upcoming_pickups_at_current(self, offset):
@@ -179,10 +183,11 @@ class State(object):
         self._panel = panel
 
     def start(self):
-        pass
+        self._minutes = 0
+        self.update_on_start()
 
     def finish(self):
-        pass
+        self.update_on_finish()
 
     def get_visibility(self):
         return (True, True)
@@ -193,6 +198,9 @@ class State(object):
     def model(self):
         return self._panel.model()
 
+    def minutes(self):
+        return self._minutes
+
     def panel(self):
         return self._panel
 
@@ -202,15 +210,33 @@ class State(object):
         rv.start()
         return rv
 
+    def timeout(self):
+        self._minutes += 1
+        self.update_on_timeout()
+
+    def update_on_start(self):
+        pass
+
+    def update_on_finish(self):
+        pass
+
+    def update_on_timeout(self):
+        pass
+
 class Wait(State):
     def get_visibility(self):
         return (True, False)
 
-    def start(self):
+    def update_on_start(self):
         self.panel().upcoming_pickups_at_current(300)
 
     def get_info_text(self):
-        return 'Waiting at %s' % self.panel().model().format_current_stop()
+        ms = self.minutes() > 0 and ' for %s' % format_minutes(self.minutes()) or ''
+        return 'Waiting at %s%s' % (self.panel().model().format_current_stop(), ms)
+
+    def update_on_timeout(self):
+        print 'feh?'
+        self.panel().upcoming_pickups_at_current(300)
 
 class SelectStop(State):
     def get_info_text(self):
@@ -281,10 +307,13 @@ class Panel(gtk.Window):
         self._state = self._state.next()
         self.refresh()
 
+    def change_text(self):
+        self._info.change_text(self._state.get_info_text())
+        
     def refresh(self):
         self.show_all()
 
-        self._info.change_text(self._state.get_info_text())
+        self.change_text()
 
         vis = self._state.get_visibility()
         if vis[0]:
@@ -309,10 +338,16 @@ class Panel(gtk.Window):
         self._model.stop_search(self.get_query_text())        
         self._list.select_first()
 
+    def timeout(self):
+        self._state.timeout()
+        self.change_text()
+        return True
+
     def upcoming_pickups_at_current(self, offset):
         self._model.upcoming_pickups_at_current(offset)
         self._list.select_first()
 
 w = Panel()
 w.refresh()
+glib.timeout_add_seconds(60, w.timeout)
 gtk.main()
