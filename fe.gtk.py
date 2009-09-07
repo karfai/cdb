@@ -253,6 +253,7 @@ class Panel(gtk.Window):
     def __init__(self):
         gtk.Window.__init__(self, gtk.WINDOW_TOPLEVEL)
 
+        self.set_title('voyageur')
         self.set_border_width(6)
         self.connect('destroy', self.act_quit)
 
