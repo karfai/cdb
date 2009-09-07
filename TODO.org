@@ -1,2 +1,5 @@
 * TODO storm is probably not available on maemo, so redo schema in pure sqlite
-* TODO search in the gtk gui
+* DONE search in the gtk gui
+  CLOSED: [2009-09-07 Mon 01:43]
+
+* TODO "riding" state
