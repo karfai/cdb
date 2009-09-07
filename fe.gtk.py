@@ -99,7 +99,7 @@ class Model(object):
 
     def _format_arrival(self, m):
         fmt = (m < 0) and 'Should have arrived %s ago' or 'Arriving in %s'
-        ms = (m > 60) and '%i:%i' % (m / 60, m % 60) or '%i minutes' % m
+        ms = (m > 60) and '%i:%02i' % (m / 60, m % 60) or '%i minutes' % m
         return fmt % ms
 
     def upcoming_pickups_at_current(self, offset):
@@ -292,8 +292,7 @@ class Panel(gtk.Window):
         if sel:
             (m, it) = sel.get_selected()
             if it:
-                rv = []
-                [rv.append(m.get_value(it, i)) for i in range(0, m.get_n_columns())]
+                rv = [m.get_value(it, i) for i in range(0, m.get_n_columns())]
         return rv
 
 
