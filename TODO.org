@@ -1,0 +1,2 @@
+* TODO storm is probably not available on maemo, so redo schema in pure sqlite
+* TODO search in the gtk gui
