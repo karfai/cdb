@@ -102,26 +102,19 @@ class Model(object):
         if srch:
             self._show_stops(self._store.find(schema.Stop, srch))
 
-    def _format_arrival(self, m):
-        fmt = 'Arriving in %s'
+    def _format_arrival(self, pu):
+        rv = 'now'
+        m = pu.minutes_until_arrival()
         if m < 0:
-            fmt = 'Should have arrived %s ago'
-            m = abs(m)
-
-        ms = format_minutes(m)
-        return fmt % ms
+            rv = 'Expected %s ago' % format_minutes(abs(m))
+        elif m > 0:
+            rv = 'Arriving in %s' % format_minutes(m)
+        return rv
 
     def upcoming_pickups_at_current(self, offset):
-        n = schema.secs_elapsed_today()
         self._results.clear()
         for pu in self._current_stop.upcoming_pickups(offset):
-            m = (pu.arrival - n) / 60
-            s = 'now'
-            if m < 0:
-                s = self._format_arrival(m)
-            elif m > 0:
-                s = self._format_arrival(m)
-            self._results.show(pu.trip.id, pu.trip.route.name, pu.trip.headsign, s)
+            self._results.show(pu.trip.id, pu.trip.route.name, pu.trip.headsign, self._format_arrival(pu))
 
     def results(self):
         return self._results

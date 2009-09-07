@@ -64,6 +64,11 @@ class Pickup(object):
     def arrives_in_range(self, r):
         return self.arrival in r
 
+    def minutes_until_arrival(self):
+        n = secs_elapsed_today()
+        return (self.arrival - n) / 60
+
+
 class Stop(object):
     __storm_table__ = "stops"
     id = Int(primary=True)
