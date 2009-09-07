@@ -131,6 +131,9 @@ class Model(object):
 
     def upcoming_stops_on_current_trip(self):
         self._results.clear()
+        if self._current_trip:
+            for pu in self._current_trip.next_pickups_from_now(5):
+                self._results.show(pu.stop.id, pu.stop.label, pu.stop.number, pu.stop.name, self._format_arrival(pu))
 
     def results(self):
         return self._results
@@ -175,7 +178,7 @@ class LocationEntry(gtk.ComboBoxEntry):
 
 class ResultsListModel(gtk.ListStore):
     def __init__(self, results):
-        gtk.ListStore.__init__(self, int, str, str, str)
+        gtk.ListStore.__init__(self, int, str, str, str, str)
         results.set_realization(self)
 
     def append(self, *args):
@@ -281,8 +284,11 @@ class Riding(State):
     def get_visibility(self):
         return (True, False)
 
-    def update_on_start(self):
+    def _refresh_pickups(self):
         self.panel().upcoming_stops_on_current_trip()
+
+    def update_on_start(self):
+        self._refresh_pickups()
 
     def get_info_text(self):
         ms = self.minutes() > 0 and ' for %s' % format_minutes(self.minutes()) or ''
@@ -292,7 +298,7 @@ class Riding(State):
         return 'Upcoming stops'
 
     def update_on_timeout(self):
-        pass
+        self._refresh_pickups()
 
     def next_class(self):
         return None
