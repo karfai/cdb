@@ -73,6 +73,7 @@ class Model(object):
         self._store = schema.create_store()
         self._results = Results()
         self._current_stop = None
+        self._current_trip = None
 
     def _build_search(self, s):
         rv = None
@@ -94,8 +95,14 @@ class Model(object):
     def format_current_stop(self):
         return '%s (%s/%i)' % (self._current_stop.name, self._current_stop.label, self._current_stop.number)
 
+    def format_current_trip(self):
+        return '%s %s' % (self._current_trip.route.name, self._current_trip.headsign)
+
     def set_current_stop(self, stop_id):
         self._current_stop = self._store.find(schema.Stop, schema.Stop.id == stop_id).one()
+            
+    def set_current_trip(self, trip_id):
+        self._current_trip = self._store.find(schema.Trip, schema.Trip.id == trip_id).one()
             
     def stop_search(self, s):
         srch = self._build_search(s)
@@ -111,10 +118,13 @@ class Model(object):
             rv = 'Arriving in %s' % format_minutes(m)
         return rv
 
-    def upcoming_pickups_at_current(self, offset):
+    def upcoming_pickups_at_current_stop(self, offset):
         self._results.clear()
         for pu in self._current_stop.upcoming_pickups(offset):
             self._results.show(pu.trip.id, pu.trip.route.name, pu.trip.headsign, self._format_arrival(pu))
+
+    def upcoming_stops_on_current_trip(self):
+        self._results.clear()
 
     def results(self):
         return self._results
@@ -230,22 +240,66 @@ class State(object):
     def update_on_timeout(self):
         pass
 
-class Wait(State):
+class Riding(State):
+    def get_visibility(self):
+        return (True, False)
+
+    def update_on_start(self):
+        self.panel().upcoming_stops_on_current_trip()
+
+    def get_info_text(self):
+        ms = self.minutes() > 0 and ' for %s' % format_minutes(self.minutes()) or ''
+        return 'Riding %s%s' % (self.panel().model().format_current_trip(), ms)
+
+    def update_on_timeout(self):
+        pass
+
+    def next_class(self):
+        return None
+
+class WaitForTrip(State):
     def get_visibility(self):
         return (True, False)
 
     def _refresh_pickups(self):
-        self.panel().upcoming_pickups_at_current(15)
+        self.panel().upcoming_pickups_at_current_stop(15)
     
     def update_on_start(self):
         self._refresh_pickups()
 
     def get_info_text(self):
         ms = self.minutes() > 0 and ' for %s' % format_minutes(self.minutes()) or ''
-        return 'Waiting at %s%s' % (self.panel().model().format_current_stop(), ms)
+        return 'Waiting for %s%s' % (self.panel().model().format_current_trip(), ms)
 
     def update_on_timeout(self):
         self._refresh_pickups()
+
+    def next_class(self):
+        return Riding
+
+class WaitAtStop(State):
+    def get_visibility(self):
+        return (True, False)
+
+    def _refresh_pickups(self):
+        self.panel().upcoming_pickups_at_current_stop(15)
+    
+    def update_on_start(self):
+        self._refresh_pickups()
+
+    def update_on_finish(self):
+        r = self.panel().selected_result()
+        self.panel().model().set_current_trip(r[0])
+
+    def update_on_timeout(self):
+        self._refresh_pickups()
+
+    def get_info_text(self):
+        ms = self.minutes() > 0 and ' for %s' % format_minutes(self.minutes()) or ''
+        return 'Waiting at %s%s' % (self.panel().model().format_current_stop(), ms)
+
+    def next_class(self):
+        return WaitForTrip
 
 class SelectStop(State):
     def get_info_text(self):
@@ -256,7 +310,7 @@ class SelectStop(State):
         self.panel().model().set_current_stop(r[0])
 
     def next_class(self):
-        return Wait
+        return WaitAtStop
 
 class Panel(gtk.Window):
     def __init__(self):
@@ -349,8 +403,12 @@ class Panel(gtk.Window):
         self._model.stop_search(self.get_query_text())        
         self._list.select_first()
 
-    def upcoming_pickups_at_current(self, offset):
-        self._model.upcoming_pickups_at_current(offset)
+    def upcoming_pickups_at_current_stop(self, offset):
+        self._model.upcoming_pickups_at_current_stop(offset)
+        self._list.select_first()
+
+    def upcoming_stops_on_current_trip(self):
+        self._model.upcoming_stops_on_current_trip()
         self._list.select_first()
 
 w = Panel()
