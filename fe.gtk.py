@@ -20,6 +20,7 @@ pygtk.require('2.0')
 import glib, gtk
 
 import re
+from datetime import *
 from storm.locals import *
 
 import schema
@@ -102,7 +103,11 @@ class Model(object):
             self._show_stops(self._store.find(schema.Stop, srch))
 
     def _format_arrival(self, m):
-        fmt = (m < 0) and 'Should have arrived %s ago' or 'Arriving in %s'
+        fmt = 'Arriving in %s'
+        if m < 0:
+            fmt = 'Should have arrived %s ago'
+            m = abs(m)
+
         ms = format_minutes(m)
         return fmt % ms
 
@@ -183,7 +188,8 @@ class State(object):
         self._panel = panel
 
     def start(self):
-        self._minutes = 0
+        self._start_t = datetime.now()
+        self._current_t = self._start_t
         self.update_on_start()
 
     def finish(self):
@@ -199,7 +205,9 @@ class State(object):
         return self._panel.model()
 
     def minutes(self):
-        return self._minutes
+        td = self._current_t - self._start_t
+        print td
+        return (td.days * 1440) + (td.seconds / 60)
 
     def panel(self):
         return self._panel
@@ -211,7 +219,7 @@ class State(object):
         return rv
 
     def timeout(self):
-        self._minutes += 1
+        self._current_t = datetime.now()
         self.update_on_timeout()
 
     def update_on_start(self):
@@ -227,16 +235,18 @@ class Wait(State):
     def get_visibility(self):
         return (True, False)
 
+    def _refresh_pickups(self):
+        self.panel().upcoming_pickups_at_current(15)
+    
     def update_on_start(self):
-        self.panel().upcoming_pickups_at_current(300)
+        self._refresh_pickups()
 
     def get_info_text(self):
         ms = self.minutes() > 0 and ' for %s' % format_minutes(self.minutes()) or ''
         return 'Waiting at %s%s' % (self.panel().model().format_current_stop(), ms)
 
     def update_on_timeout(self):
-        print 'feh?'
-        self.panel().upcoming_pickups_at_current(300)
+        self._refresh_pickups()
 
 class SelectStop(State):
     def get_info_text(self):
