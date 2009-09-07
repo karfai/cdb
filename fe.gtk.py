@@ -134,7 +134,7 @@ class FindButton(gtk.Button):
         self.connect('clicked', self.act_click, panel)
 
     def act_click(self, w, panel):
-        panel.model().stop_search(panel.get_query_text())
+        panel.stop_search()
 
 class NextStateButton(gtk.Button):
     def __init__(self, panel):
@@ -145,8 +145,15 @@ class NextStateButton(gtk.Button):
         panel.next()
 
 class LocationEntry(gtk.ComboBoxEntry):
-    def __init__(self):
+    def __init__(self, panel):
         gtk.ComboBoxEntry.__init__(self)
+        self.entry().connect('activate', self.act_activate, panel)
+
+    def entry(self):
+        return self.get_children()[0]
+
+    def act_activate(self, w, panel):
+        panel.stop_search()
 
 class ResultsListModel(gtk.ListStore):
     def __init__(self, results):
@@ -163,6 +170,9 @@ class ResultsTreeView(gtk.TreeView):
         self.set_headers_visible(False)
         for i in range(0, self.get_model().get_n_columns()):
             self.append_column(gtk.TreeViewColumn('', gtk.CellRendererText(), markup=i))
+
+    def select_first(self):
+        self.get_selection().select_path(0)
 
 class State(object):
     def __init__(self, panel):
@@ -197,7 +207,7 @@ class Wait(State):
         return (True, False)
 
     def start(self):
-        self.panel().model().upcoming_pickups_at_current(300)
+        self.panel().upcoming_pickups_at_current(300)
 
     def get_info_text(self):
         return 'Waiting at %s' % self.panel().model().format_current_stop()
@@ -243,7 +253,7 @@ class Panel(gtk.Window):
 
         self._search_box = gtk.HBox(False, 8)
 
-        self._location_entry = LocationEntry()
+        self._location_entry = LocationEntry(self)
         self._search_box.pack_start(self._location_entry, True, True, 0)
 
         hb = gtk.HBox(False, 2)
@@ -295,6 +305,13 @@ class Panel(gtk.Window):
                 rv = [m.get_value(it, i) for i in range(0, m.get_n_columns())]
         return rv
 
+    def stop_search(self):
+        self._model.stop_search(self.get_query_text())        
+        self._list.select_first()
+
+    def upcoming_pickups_at_current(self, offset):
+        self._model.upcoming_pickups_at_current(offset)
+        self._list.select_first()
 
 w = Panel()
 w.refresh()
