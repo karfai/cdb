@@ -5,4 +5,5 @@
 * DONE "riding" state
   CLOSED: [2009-09-07 Mon 14:51]
 
-* TODO loop the riding state back to the waiting-at-stop state
+* DONE loop the riding state back to the waiting-at-stop state
+  CLOSED: [2009-09-07 Mon 15:06]

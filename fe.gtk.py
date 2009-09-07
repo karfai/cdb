@@ -290,6 +290,13 @@ class Riding(State):
     def update_on_start(self):
         self._refresh_pickups()
 
+    def update_on_timeout(self):
+        self._refresh_pickups()
+
+    def update_on_finish(self):
+        r = self.panel().selected_result()
+        self.panel().model().set_stop(r[0])
+
     def get_info_text(self):
         ms = self.minutes() > 0 and ' for %s' % format_minutes(self.minutes()) or ''
         return 'Riding %s%s' % (self.panel().model().format_trip(), ms)
@@ -297,11 +304,8 @@ class Riding(State):
     def get_details_text(self):
         return 'Upcoming stops'
 
-    def update_on_timeout(self):
-        self._refresh_pickups()
-
     def next_class(self):
-        return None
+        return WaitAtStop
 
 class WaitForTrips(State):
     def get_visibility(self):
