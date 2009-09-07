@@ -358,6 +358,7 @@ class Panel(gtk.Window):
         gtk.Window.__init__(self, gtk.WINDOW_TOPLEVEL)
 
         self.set_title('voyageur')
+        self.set_icon_from_file('icon.png')
         self.set_border_width(6)
         self.connect('destroy', self.act_quit)
 
