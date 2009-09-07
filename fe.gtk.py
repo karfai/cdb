@@ -263,32 +263,12 @@ class Riding(State):
     def next_class(self):
         return None
 
-class WaitForTrip(State):
+class WaitForTrips(State):
     def get_visibility(self):
         return (True, False)
-
-    def _refresh_pickups(self):
-        self.panel().upcoming_pickups_at_current_stop(15)
-    
-    def update_on_start(self):
-        self._refresh_pickups()
-
-    def get_info_text(self):
-        ms = self.minutes() > 0 and ' for %s' % format_minutes(self.minutes()) or ''
-        return 'Waiting for %s%s' % (self.panel().model().format_current_trip(), ms)
 
     def get_details_text(self):
         return 'Trips'
-
-    def update_on_timeout(self):
-        self._refresh_pickups()
-
-    def next_class(self):
-        return Riding
-
-class WaitAtStop(State):
-    def get_visibility(self):
-        return (True, False)
 
     def _refresh_pickups(self):
         self.panel().upcoming_pickups_at_current_stop(15)
@@ -303,15 +283,21 @@ class WaitAtStop(State):
     def update_on_timeout(self):
         self._refresh_pickups()
 
+class WaitForSelectedTrip(WaitForTrips):
+    def get_info_text(self):
+        ms = self.minutes() > 0 and ' for %s' % format_minutes(self.minutes()) or ''
+        return 'Waiting for %s%s' % (self.panel().model().format_current_trip(), ms)
+
+    def next_class(self):
+        return Riding
+
+class WaitAtStop(WaitForTrips):
     def get_info_text(self):
         ms = self.minutes() > 0 and ' for %s' % format_minutes(self.minutes()) or ''
         return 'Waiting at %s%s' % (self.panel().model().format_current_stop(), ms)
 
-    def get_details_text(self):
-        return 'Trips'
-
     def next_class(self):
-        return WaitForTrip
+        return WaitForSelectedTrip
 
 class SelectStop(State):
     def get_info_text(self):
