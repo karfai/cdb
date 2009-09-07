@@ -89,13 +89,13 @@ class Model(object):
     def _show_stops(self, stops):
         self._results.clear()
         for stop in stops:
-            self._results.show(stop.label, stop.number, stop.name)
+            self._results.show(stop.id, stop.label, stop.number, stop.name)
 
     def format_current_stop(self):
         return '%s (%s/%i)' % (self._current_stop.name, self._current_stop.label, self._current_stop.number)
 
-    def set_current_stop(self, code):
-        self._current_stop = self._store.find(schema.Stop, schema.Stop.label == unicode(code)).one()
+    def set_current_stop(self, stop_id):
+        self._current_stop = self._store.find(schema.Stop, schema.Stop.id == stop_id).one()
             
     def stop_search(self, s):
         srch = self._build_search(s)
@@ -121,7 +121,7 @@ class Model(object):
                 s = self._format_arrival(m)
             elif m > 0:
                 s = self._format_arrival(m)
-            self._results.show(pu.trip.route.name, pu.trip.headsign, s)
+            self._results.show(pu.trip.id, pu.trip.route.name, pu.trip.headsign, s)
 
     def results(self):
         return self._results
@@ -166,7 +166,7 @@ class LocationEntry(gtk.ComboBoxEntry):
 
 class ResultsListModel(gtk.ListStore):
     def __init__(self, results):
-        gtk.ListStore.__init__(self, str, str, str)
+        gtk.ListStore.__init__(self, int, str, str, str)
         results.set_realization(self)
 
     def append(self, *args):
@@ -177,7 +177,7 @@ class ResultsTreeView(gtk.TreeView):
     def __init__(self, results):
         gtk.TreeView.__init__(self, ResultsListModel(results))
         self.set_headers_visible(False)
-        for i in range(0, self.get_model().get_n_columns()):
+        for i in range(1, self.get_model().get_n_columns()):
             self.append_column(gtk.TreeViewColumn('', gtk.CellRendererText(), markup=i))
 
     def select_first(self):
