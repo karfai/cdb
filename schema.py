@@ -40,6 +40,13 @@ class ServicePeriod(object):
     start = Int()
     finish = Int()
 
+class ServiceException(object):
+    __storm_table__ = "service_exceptions"
+    id = Int(primary=True)    
+    day = Int()
+    exception_type = Int()
+    service_period_id = Int()
+
 class Pickup(object):
     __storm_table__ = "pickups"
     __storm_primary__ = "trip_id", "stop_id"
@@ -70,7 +77,9 @@ class Stop(object):
         t = secs_elapsed_today()
         r = range(t - 5 * 60, (t + offset * 60) + 1)
         sp = current_service_period(Store.of(self))
-        return [pu for pu in self.pickups if pu.in_service(sp) and pu.arrives_in_range(r)]
+        rv = [pu for pu in self.pickups if pu.in_service(sp) and pu.arrives_in_range(r)]
+        rv.sort(cmp=lambda a,b: cmp(a.arrival, b.arrival))
+        return rv
 
 class Route(object):
     __storm_table__ = "routes"
@@ -103,17 +112,24 @@ Stop.pickups = ReferenceSet(Stop.id, Pickup.stop_id)
 Trip.stops = ReferenceSet(Trip.id, Pickup.trip_id, Pickup.stop_id, Stop.id)
 Pickup.stop = Reference(Pickup.stop_id, Stop.id)
 Pickup.trip = Reference(Pickup.trip_id, Trip.id)
+ServiceException.service_period = Reference(ServiceException.service_period_id, ServicePeriod.id)
 # Stop.next via Progression
 # Trip.upcoming_stops(Stop)
 
 def current_service_period(st):
     n = datetime.now()
     fl = (1 << n.weekday())
-    dt = n.date().toordinal()
-    for p in st.find(ServicePeriod):
-        if p.days & fl and dt in range(p.start, p.finish + 1):
-            return p
-    return None
+    day = n.date().toordinal()
+    ex = st.find(ServiceException, ServiceException.day == day).one()
+    rv = None
+    if ex:
+        rv = ex.service_period
+    else:
+        for p in st.find(ServicePeriod):
+            if p.days & fl and dt in range(p.start, p.finish + 1):
+                rv = p
+                break
+    return rv
 
 def create_store():
     return Store(create_database('sqlite:test.db'))
@@ -126,6 +142,7 @@ def make():
     cur.execute('CREATE TABLE trips (id INTEGER PRIMARY KEY AUTOINCREMENT, headsign TEXT, block INTEGER, route_id INTEGER, service_period_id INTEGER)')
     cur.execute('CREATE TABLE pickups (id INTEGER PRIMARY KEY AUTOINCREMENT, arrival INTEGER, departure INTEGER, trip_id INTEGER, stop_id INTEGER)')
     cur.execute('CREATE TABLE service_periods (id INTEGER PRIMARY KEY AUTOINCREMENT, days INTEGER, start INTEGER, finish INTEGER)')
+    cur.execute('CREATE TABLE service_exceptions (id INTEGER PRIMARY KEY AUTOINCREMENT, day INTEGER, exception_type INTEGER, service_period_id INTEGER)')
     conn.commit()
     cur.close()
     return conn

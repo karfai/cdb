@@ -70,7 +70,15 @@ def add_service_period(cur, cache, parts):
         [days, st, fin]
         )
     cache['service_periods'][parts[0]] = cur.lastrowid
-    
+
+def add_service_exception(cur, cache, parts):
+    service_period_id = cache['service_periods'][parts[0]]
+    day = datetime.strptime(parts[1], '%Y%m%d').toordinal()
+    exception_type = int(parts[2])
+    cur.execute(
+        'INSERT INTO service_exceptions (day, exception_type, service_period_id) VALUES (?,?,?)',
+        [day, exception_type, service_period_id]
+        )
     
 def build(conn, cache, fuel):
     (t, fn) = fuel
@@ -106,11 +114,12 @@ cache = {
 }
 
 builders = [
-    ['calendar',   add_service_period],
-    ['stops',      add_stop],
-    ['routes',     add_route],
-    ['trips',      add_trip],
-    ['stop_times', add_pickup],
+    ['calendar',       add_service_period],
+    ['calendar_dates', add_service_exception],
+    ['stops',          add_stop],
+    ['routes',         add_route],
+    ['trips',          add_trip],
+    ['stop_times',     add_pickup],
 ]
 
 [build(conn, cache, fuel) for fuel in builders]
