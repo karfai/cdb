@@ -186,14 +186,19 @@ class ResultsTreeView(gtk.TreeView):
 class State(object):
     def __init__(self, panel):
         self._panel = panel
+        self._active = False
 
     def start(self):
         self._start_t = datetime.now()
         self._current_t = self._start_t
         self.update_on_start()
+        self._timer_id = glib.timeout_add_seconds(60, self.timeout)
+        self._active = True
 
     def finish(self):
         self.update_on_finish()
+        glib.source_remove(self._timer_id)
+        self._active = False
 
     def get_visibility(self):
         return (True, True)
@@ -206,7 +211,6 @@ class State(object):
 
     def minutes(self):
         td = self._current_t - self._start_t
-        print td
         return (td.days * 1440) + (td.seconds / 60)
 
     def panel(self):
@@ -220,7 +224,9 @@ class State(object):
 
     def timeout(self):
         self._current_t = datetime.now()
+        self.panel().change_text()
         self.update_on_timeout()
+        return self._active
 
     def update_on_start(self):
         pass
@@ -252,7 +258,7 @@ class SelectStop(State):
     def get_info_text(self):
         return 'Where are you now?'
 
-    def finish(self):
+    def update_on_finish(self):
         r = self.panel().selected_result()
         self.panel().model().set_current_stop(r[0])
 
@@ -269,6 +275,7 @@ class Panel(gtk.Window):
 
         self._model = Model()
         self._state = SelectStop(self)
+        self._state.start()
 
         self._build_contents()
 
@@ -349,16 +356,10 @@ class Panel(gtk.Window):
         self._model.stop_search(self.get_query_text())        
         self._list.select_first()
 
-    def timeout(self):
-        self._state.timeout()
-        self.change_text()
-        return True
-
     def upcoming_pickups_at_current(self, offset):
         self._model.upcoming_pickups_at_current(offset)
         self._list.select_first()
 
 w = Panel()
 w.refresh()
-glib.timeout_add_seconds(60, w.timeout)
 gtk.main()
