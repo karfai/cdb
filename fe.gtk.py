@@ -103,6 +103,12 @@ class Model(object):
             
     def set_current_trip(self, trip_id):
         self._current_trip = self._store.find(schema.Trip, schema.Trip.id == trip_id).one()
+
+    def get_current_trip_id(self):
+        rv = None
+        if self._current_trip:
+            rv = self._current_trip.id
+        return rv
             
     def stop_search(self, s):
         srch = self._build_search(s)
@@ -176,6 +182,16 @@ class ResultsListModel(gtk.ListStore):
         it = gtk.ListStore.append(self)
         [self.set(it, i, args[i]) for i in range(0, len(args))]
             
+class MatchId(object):
+    def __init__(self, id):
+        self.id = id
+        self.it = None
+
+    def check(self, m, p, it):
+        if self.id == m.get_value(it, 0):
+            self.it = it
+        return self.it is not None
+
 class ResultsTreeView(gtk.TreeView):
     def __init__(self, results):
         gtk.TreeView.__init__(self, ResultsListModel(results))
@@ -183,8 +199,23 @@ class ResultsTreeView(gtk.TreeView):
         for i in range(1, self.get_model().get_n_columns()):
             self.append_column(gtk.TreeViewColumn('', gtk.CellRendererText(), markup=i))
 
+    def find(self, id):
+        rv = None
+        if id:
+            idm = MatchId(id)
+            self.get_model().foreach(idm.check)
+            rv = idm.it
+        return rv
+
     def select_first(self):
         self.get_selection().select_path(0)
+
+    def select_id(self, active_id):
+        it = self.find(active_id)
+        if it:
+            self.get_selection().select_iter(it)
+        else:
+            self.select_first()
 
 class State(object):
     def __init__(self, panel):
@@ -211,6 +242,9 @@ class State(object):
 
     def get_details_text(self):
         return ''
+
+    def get_active_id(self):
+        return None
 
     def model(self):
         return self._panel.model()
@@ -287,6 +321,12 @@ class WaitForSelectedTrip(WaitForTrips):
     def get_info_text(self):
         ms = self.minutes() > 0 and ' for %s' % format_minutes(self.minutes()) or ''
         return 'Waiting for %s%s' % (self.panel().model().format_current_trip(), ms)
+
+    def get_active_id(self):
+        return self.panel().model().get_current_trip_id()
+
+    def update_on_start(self):
+        pass
 
     def next_class(self):
         return Riding
@@ -399,6 +439,11 @@ class Panel(gtk.Window):
         else:
             self._search_box.hide_all()
 
+        self.select_active()
+
+    def select_active(self):
+        self._list.select_id(self._state.get_active_id())
+
     def selected_result(self):
         sel = self._list.get_selection()
         rv = None
@@ -414,11 +459,11 @@ class Panel(gtk.Window):
 
     def upcoming_pickups_at_current_stop(self, offset):
         self._model.upcoming_pickups_at_current_stop(offset)
-        self._list.select_first()
+        self.select_active()
 
     def upcoming_stops_on_current_trip(self):
         self._model.upcoming_stops_on_current_trip()
-        self._list.select_first()
+        self.select_active()
 
 w = Panel()
 w.refresh()
