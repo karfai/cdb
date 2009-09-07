@@ -7,3 +7,5 @@
 
 * DONE loop the riding state back to the waiting-at-stop state
   CLOSED: [2009-09-07 Mon 15:06]
+
+* TODO add ability to end the trip while waiting at a stop, this should return to the search panel
