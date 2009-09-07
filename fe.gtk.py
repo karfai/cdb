@@ -209,6 +209,9 @@ class State(object):
     def get_info_text(self):
         return ''
 
+    def get_details_text(self):
+        return ''
+
     def model(self):
         return self._panel.model()
 
@@ -251,6 +254,9 @@ class Riding(State):
         ms = self.minutes() > 0 and ' for %s' % format_minutes(self.minutes()) or ''
         return 'Riding %s%s' % (self.panel().model().format_current_trip(), ms)
 
+    def get_details_text(self):
+        return 'Upcoming stops'
+
     def update_on_timeout(self):
         pass
 
@@ -270,6 +276,9 @@ class WaitForTrip(State):
     def get_info_text(self):
         ms = self.minutes() > 0 and ' for %s' % format_minutes(self.minutes()) or ''
         return 'Waiting for %s%s' % (self.panel().model().format_current_trip(), ms)
+
+    def get_details_text(self):
+        return 'Trips'
 
     def update_on_timeout(self):
         self._refresh_pickups()
@@ -298,12 +307,18 @@ class WaitAtStop(State):
         ms = self.minutes() > 0 and ' for %s' % format_minutes(self.minutes()) or ''
         return 'Waiting at %s%s' % (self.panel().model().format_current_stop(), ms)
 
+    def get_details_text(self):
+        return 'Trips'
+
     def next_class(self):
         return WaitForTrip
 
 class SelectStop(State):
     def get_info_text(self):
         return 'Where are you now?'
+
+    def get_details_text(self):
+        return 'Stops'
 
     def update_on_finish(self):
         r = self.panel().selected_result()
@@ -334,7 +349,14 @@ class Panel(gtk.Window):
         sw.set_policy(gtk.POLICY_AUTOMATIC, gtk.POLICY_AUTOMATIC)
         sw.add(self._list)
 
-        return sw
+        al = gtk.Alignment(0.5, 0.5, 1.0, 1.0)
+        al.set_padding(0, 6, 4, 4)
+        al.add(sw)
+
+        self._frame = gtk.Frame('')
+        self._frame.add(al)
+
+        return self._frame
 
     def _build_contents(self):
         vb = gtk.VBox(False, 4)
@@ -374,6 +396,7 @@ class Panel(gtk.Window):
 
     def change_text(self):
         self._info.change_text(self._state.get_info_text())
+        self._frame.set_label(self._state.get_details_text())
         
     def refresh(self):
         self.show_all()
