@@ -136,7 +136,7 @@ def current_service_period(st):
         rv = ex.service_period
     else:
         for p in st.find(ServicePeriod):
-            if p.days & fl and dt in range(p.start, p.finish + 1):
+            if p.days & fl and day in range(p.start, p.finish + 1):
                 rv = p
                 break
     return rv
