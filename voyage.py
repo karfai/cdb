@@ -21,34 +21,10 @@ import glib, gtk
 
 import re
 from datetime import *
-from storm.locals import *
 
 import schema
 
 # model elements
-def search_intersection(parts):
-    a = unicode('%' + parts[0].upper() + '%')
-    b = unicode('%' + parts[1].upper() + '%')
-    return Or(Like(schema.Stop.name, '%s/%s' % (a, b)),
-              Like(schema.Stop.name, '%s/%s' % (b, a)))
-
-def search_number(parts):
-    return schema.Stop.number == int(parts[0])
-
-def search_label(parts):
-    return schema.Stop.label == unicode(parts[0].upper())
-
-def search_all(parts):
-    return schema.Stop.name.like(unicode('%' + parts[0].upper() + '%'))
-
-srch_pats = [
-    ('(\w+) and (\w+)',       search_intersection),
-    ('(\w+)\s*/\s*(\w+)',     search_intersection),
-    ('([0-9]{4})',            search_number),
-    ('([a-zA-Z]{2}[0-9]{3})', search_label),
-    ('(\w+)',                 search_all),
-]
-
 def format_minutes(m):
     rv = '%i minute%s' % (m, (m > 1) and 's' or '')
     return (m > 60) and '%i:%02i' % (m / 60, m % 60) or rv
@@ -70,7 +46,7 @@ class Results(object):
         
 class Model(object):
     def __init__(self):
-        self._store = schema.create_store()
+        self._store = schema.Schema()
         self._results = Results()
         self._stop = None
         self._trip = None
@@ -96,13 +72,13 @@ class Model(object):
         return '%s (%s/%i)' % (self._stop.name, self._stop.label, self._stop.number)
 
     def format_trip(self):
-        return '%s %s' % (self._trip.route.name, self._trip.headsign)
+        return '%s %s' % (self._trip.route().name, self._trip.headsign)
 
     def set_stop(self, stop_id):
-        self._stop = self._store.find(schema.Stop, schema.Stop.id == stop_id).one()
+        self._stop = self._store.find_stop(stop_id)
             
     def set_trip(self, trip_id):
-        self._trip = self._store.find(schema.Trip, schema.Trip.id == trip_id).one()
+        self._trip = self._store.find_trip(trip_id)
 
     def get_trip_id(self):
         rv = None
@@ -111,9 +87,7 @@ class Model(object):
         return rv
             
     def stop_search(self, s):
-        srch = self._build_search(s)
-        if srch:
-            self._show_stops(self._store.find(schema.Stop, srch))
+        self._show_stops(self._store.stop_search(s))
 
     def _format_arrival(self, pu):
         rv = 'now'
@@ -127,13 +101,15 @@ class Model(object):
     def upcoming_pickups_at_stop(self, offset):
         self._results.clear()
         for pu in self._stop.upcoming_pickups(offset):
-            self._results.show(pu.trip.id, pu.trip.route.name, pu.trip.headsign, self._format_arrival(pu))
+            tr = pu.trip()
+            self._results.show(tr.id, tr.route().name, tr.headsign, self._format_arrival(pu))
 
     def upcoming_stops_on_trip(self):
         self._results.clear()
         if self._trip:
             for pu in self._trip.next_pickups_from_now(5):
-                self._results.show(pu.stop.id, pu.stop.label, pu.stop.number, pu.stop.name, self._format_arrival(pu))
+                st = pu.stop()
+                self._results.show(st.id, st.label, st.number, st.name, self._format_arrival(pu))
 
     def results(self):
         return self._results
