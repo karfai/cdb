@@ -1,3 +1,4 @@
+* TODO "hildonize"
 * DONE storm is probably not available on maemo, so redo schema in pure sqlite
   CLOSED: [2009-09-19 Sat 18:49]
 * DONE search in the gtk gui
@@ -9,7 +10,9 @@
 * DONE loop the riding state back to the waiting-at-stop state
   CLOSED: [2009-09-07 Mon 15:06]
 
-* TODO add ability to end the trip while waiting at a stop, this should return to the search panel
-* TODO "hildonize"
-* TODO each state can provide a name for the transition button
-* TODO allow for multiple exit points (buttons) from a panel
+* DONE add ability to end the trip while waiting at a stop, this should return to the search panel
+  CLOSED: [2009-09-19 Sat 19:50]
+* DONE each state can provide a name for the transition button
+  CLOSED: [2009-09-19 Sat 19:50]
+* DONE allow for multiple exit points (buttons) from a panel
+  CLOSED: [2009-09-19 Sat 19:50]
