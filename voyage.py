@@ -134,12 +134,12 @@ class FindButton(gtk.Button):
         panel.stop_search()
 
 class NextStateButton(gtk.Button):
-    def __init__(self, panel):
+    def __init__(self, panel, index):
         gtk.Button.__init__(self, None, 'gtk-execute')
-        self.connect('clicked', self.act_click, panel)
+        self.connect('clicked', self.act_click, panel, index)
 
-    def act_click(self, w, panel):
-        panel.next()
+    def act_click(self, w, panel, index):
+        panel.next(index)
 
 class LocationEntry(gtk.ComboBoxEntry):
     def __init__(self, panel):
@@ -208,8 +208,8 @@ class State(object):
         self._timer_id = glib.timeout_add_seconds(60, self.timeout)
         self._active = True
 
-    def finish(self):
-        self.update_on_finish()
+    def finish(self, index):
+        self.update_on_finish(index)
         glib.source_remove(self._timer_id)
         self._active = False
 
@@ -235,9 +235,10 @@ class State(object):
     def panel(self):
         return self._panel
 
-    def next(self):
-        self.finish()
-        rv = self.next_class()(self._panel)
+    def next(self, index):
+        self.finish(index)
+        cl = [ex[1] for ex in self.exits()][index]
+        rv = cl(self._panel)
         rv.start()
         return rv
 
@@ -250,7 +251,7 @@ class State(object):
     def update_on_start(self):
         pass
 
-    def update_on_finish(self):
+    def update_on_finish(self, exit_index):
         pass
 
     def update_on_timeout(self):
@@ -269,7 +270,7 @@ class Riding(State):
     def update_on_timeout(self):
         self._refresh_pickups()
 
-    def update_on_finish(self):
+    def update_on_finish(self, exit_index):
         r = self.panel().selected_result()
         self.panel().model().set_stop(r[0])
 
@@ -280,8 +281,8 @@ class Riding(State):
     def get_details_text(self):
         return 'Upcoming stops'
 
-    def next_class(self):
-        return WaitAtStop
+    def exits(self):
+        return [('Get off', WaitAtStop)]
 
 class WaitForTrips(State):
     def get_visibility(self):
@@ -296,7 +297,7 @@ class WaitForTrips(State):
     def update_on_start(self):
         self._refresh_pickups()
 
-    def update_on_finish(self):
+    def update_on_finish(self, exit_index):
         r = self.panel().selected_result()
         self.panel().model().set_trip(r[0])
 
@@ -314,16 +315,16 @@ class WaitForSelectedTrip(WaitForTrips):
     def update_on_start(self):
         pass
 
-    def next_class(self):
-        return Riding
+    def exits(self):
+        return [('Get on', Riding)]
 
 class WaitAtStop(WaitForTrips):
     def get_info_text(self):
         ms = self.minutes() > 0 and ' for %s' % format_minutes(self.minutes()) or ''
         return 'Waiting at %s%s' % (self.panel().model().format_stop(), ms)
 
-    def next_class(self):
-        return WaitForSelectedTrip
+    def exits(self):
+        return [('Wait for this bus', WaitForSelectedTrip)]
 
 class SelectStop(State):
     def get_info_text(self):
@@ -332,12 +333,12 @@ class SelectStop(State):
     def get_details_text(self):
         return 'Stops'
 
-    def update_on_finish(self):
+    def update_on_finish(self, exit_index):
         r = self.panel().selected_result()
         self.panel().model().set_stop(r[0])
 
-    def next_class(self):
-        return WaitAtStop
+    def exits(self):
+        return [('Wait for buses', WaitAtStop)]
 
 class Panel(gtk.Window):
     def __init__(self):
@@ -356,6 +357,8 @@ class Panel(gtk.Window):
 
     def _build_list(self):
         self._list = ResultsTreeView(self._model.results())
+        self._list.get_selection().connect('changed', self.act_selection)
+        
 
         sw = gtk.ScrolledWindow()
         sw.set_shadow_type(gtk.SHADOW_ETCHED_IN)
@@ -390,12 +393,19 @@ class Panel(gtk.Window):
         vb.pack_start(self._search_box, False, True, 0)
         vb.pack_start(self._build_list(), True, True, 0)
 
-        vb.pack_start(NextStateButton(self), False, True, 0)
+        self._next = NextStateButton(self, 0)
+        self._exits = gtk.HButtonBox()
+        self._exits.set_layout(gtk.BUTTONBOX_START)
+        self._exits.add(self._next)
+        vb.pack_start(self._exits, False, True, 0)
 
         self.add(vb)
 
     def act_quit(self, w):
         gtk.main_quit()        
+
+    def act_selection(self, sel):
+        self.enable_exits()
 
     def get_query_text(self):
         return self._location_entry.get_active_text()
@@ -403,9 +413,16 @@ class Panel(gtk.Window):
     def model(self):
         return self._model
 
-    def next(self):
-        self._state = self._state.next()
+    def next(self, index):
+        self._state = self._state.next(index)
         self.refresh()
+
+    def enable_exits(self):
+        self._next.set_sensitive(self._list.get_selection().count_selected_rows() > 0)
+
+    def change_exits(self):
+        labels = [ex[0] for ex in self._state.exits()]
+        self._next.set_label(labels[0])
 
     def change_text(self):
         self._info.change_text(self._state.get_info_text())
@@ -415,6 +432,8 @@ class Panel(gtk.Window):
         self.show_all()
 
         self.change_text()
+        self.change_exits()
+        self.enable_exits()
 
         vis = self._state.get_visibility()
         if vis[0]:
