@@ -1,0 +1,32 @@
+This is "voyageur".
+
+
+OVERVIEW
+
+The project is intended to be a personal trip dashboard to be used
+while travelling on OCTranspo in Ottawa, ON, Canada. It uses GTFS
+(http://code.google.com/transit/spec/transit_feed_specification.html)
+data provided at (http://www.gtfs-data-exchange.com/agency/oc-transpo), 
+so it might be possible to use the program to track trips on other
+transit systems which publish data in this form. In order to properly
+use the GTFS data, the build_database program must be run against the
+feed. This produces the sqlite3 database that the application
+requires. Since the application was originally designed for a mobile
+device, the database is a specialized pruning of the data set. This
+pruning could possibly be specific to the OCTranspo service.
+
+FEATURES
+
+Presently the application only uses the static schedule data in the
+GTFS feed to allow a transit rider to:
+
+- search for stops
+- wait at a stop
+- select a bus to ride
+- see upcoming stops while riding
+
+Future features will be:
+
+- integration of the gps on maemo devices to search for stops while
+  waiting and riding
+- travel log which records the user's trips
