@@ -405,7 +405,7 @@ class Panel(gtk.Window):
         vb.pack_start(self._build_list(), True, True, 0)
 
         self._exits = gtk.HButtonBox()
-        self._exits.set_layout(gtk.BUTTONBOX_START)
+        self._exits.set_layout(gtk.BUTTONBOX_SPREAD)
         vb.pack_start(self._exits, False, True, 0)
 
         self.add(vb)
