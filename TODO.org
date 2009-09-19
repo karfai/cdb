@@ -11,3 +11,5 @@
 
 * TODO add ability to end the trip while waiting at a stop, this should return to the search panel
 * TODO "hildonize"
+* TODO each state can provide a name for the transition button
+* TODO allow for multiple exit points (buttons) from a panel
