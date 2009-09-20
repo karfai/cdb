@@ -126,11 +126,12 @@ class InfoLabel(gtk.Label):
         self.set_markup('<span size="x-large">%s</span>' % text)
         
 class FindButton(gtk.Button):
-    def __init__(self, panel):
+    def __init__(self, panel, loc):
         gtk.Button.__init__(self, None, 'gtk-find')
-        self.connect('clicked', self.act_click, panel)
+        self.connect('clicked', self.act_click, panel, loc)
 
-    def act_click(self, w, panel):
+    def act_click(self, w, panel, loc):
+        loc.store_current()
         panel.stop_search()
 
 class NextStateButton(gtk.Button):
@@ -144,7 +145,11 @@ class NextStateButton(gtk.Button):
 class LocationEntry(gtk.ComboBoxEntry):
     def __init__(self, panel):
         gtk.ComboBoxEntry.__init__(self)
+        self.set_model(gtk.ListStore(str))
+        self.set_text_column(0)
         self.entry().connect('activate', self.act_activate, panel)
+        self.connect('changed', self.act_changed, panel)
+        self._active = self.get_active()
     
     def clear(self):
         self.entry().set_text('')
@@ -152,7 +157,16 @@ class LocationEntry(gtk.ComboBoxEntry):
     def entry(self):
         return self.get_children()[0]
 
+    def store_current(self):
+        self.append_text(self.entry().get_text())
+        
+    def act_changed(self, w, panel):
+        if self._active != w.get_active():
+            self._active = w.get_active()
+            panel.stop_search()
+
     def act_activate(self, w, panel):
+        self.store_current()
         panel.stop_search()
 
 class ResultsListModel(gtk.ListStore):
@@ -397,7 +411,7 @@ class Panel(gtk.Window):
         self._search_box.pack_start(self._location_entry, True, True, 0)
 
         hb = gtk.HBox(False, 2)
-        hb.pack_start(FindButton(self), True, True, 0)
+        hb.pack_start(FindButton(self, self._location_entry), True, True, 0)
         hb.pack_start(gtk.Button('GPS'), True, True, 0)
         self._search_box.pack_start(hb, True, True, 0)
 

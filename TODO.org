@@ -1,4 +1,7 @@
 * TODO "hildonize"
+* DONE keep search history in search location box
+  CLOSED: [2009-09-19 Sat 20:25]
+* TODO persist search history
 * DONE storm is probably not available on maemo, so redo schema in pure sqlite
   CLOSED: [2009-09-19 Sat 18:49]
 * DONE search in the gtk gui
