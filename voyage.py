@@ -407,11 +407,11 @@ class Panel(gtk.Window):
 
         self._search_box = gtk.HBox(False, 8)
 
-        self._location_entry = LocationEntry(self)
-        self._search_box.pack_start(self._location_entry, True, True, 0)
+        self._loc = LocationEntry(self)
+        self._search_box.pack_start(self._loc, True, True, 0)
 
         hb = gtk.HBox(False, 2)
-        hb.pack_start(FindButton(self, self._location_entry), True, True, 0)
+        hb.pack_start(FindButton(self, self._loc), True, True, 0)
         hb.pack_start(gtk.Button('GPS'), True, True, 0)
         self._search_box.pack_start(hb, True, True, 0)
 
@@ -431,7 +431,7 @@ class Panel(gtk.Window):
         self.enable_exits()
 
     def get_query_text(self):
-        return self._location_entry.get_active_text()
+        return self._loc.get_active_text()
 
     def model(self):
         return self._model
@@ -455,7 +455,7 @@ class Panel(gtk.Window):
         self._frame.set_label(self._state.get_details_text())
 
     def clear_results(self):
-        self._location_entry.clear()
+        self._loc.clear()
         self._list.get_model().clear()
         
     def refresh(self):
