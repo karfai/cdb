@@ -77,7 +77,6 @@ class Schema(object):
         n = self.current_time()
         fl = (1 << n.weekday())
         day = n.date().toordinal()
-        print day
         ex = self.find_service_exception(day)
         rv = None
         if ex:
@@ -101,7 +100,6 @@ class Schema(object):
 
     def find_many(self, klass, q, args={}):
         c = self._conn.cursor()
-        print q
         c.execute(q, args)
         rv = [klass(self, *r) for r in c.fetchall()]
         c.close()
