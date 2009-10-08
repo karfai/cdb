@@ -54,7 +54,7 @@ class SchemaThread(threading.Thread):
         self._store = schema.Schema()
         while not self._e.is_set():
             try:
-                m = self._q.get_nowait()
+                m = self._q.get(False, 1)
                 if m is None:
                     break
                 
@@ -63,8 +63,9 @@ class SchemaThread(threading.Thread):
                 pass
 
 class StoreRequest(object):
-    def __init__(self, results):
+    def __init__(self, results, repeats=True):
         self._results = results
+        self._repeats = repeats
 
     def _show(self, l, fn):
         [self._results.show(*fn(e)) for e in l]
@@ -72,9 +73,12 @@ class StoreRequest(object):
     def _show_info(self, o):
         self._results.show_info(o)
 
+    def repeats(self):
+        return self._repeats
+
 class StopSearch(StoreRequest):
     def __init__(self, results, srch):
-        super(StopSearch, self).__init__(results)
+        super(StopSearch, self).__init__(results, False)
         self._srch = srch
 
     def execute(self, st):
@@ -119,12 +123,19 @@ class Model(object):
         self._e = threading.Event()
         self._th = SchemaThread(self._q, self._e)
         self._th.start()
+        self._timer = None
 
+    def _reschedule(self, t, a, expect_results=True):
+        self._timer = threading.Timer(t, lambda : self._schedule(a, expect_results))
+        self._timer.start()
+        
     def _schedule(self, a, expect_results=True):
         if expect_results:
             self._results.clear()
             self._results.disable()
-        self._q.put_nowait(a)        
+        self._q.put(a)
+        if a.repeats():
+            self._reschedule(60.0, a, expect_results)
 
     def set_display(self, r):
         self._results = r
@@ -144,6 +155,8 @@ class Model(object):
     def stop(self):
         self._e.set()
         self._th.join()
+        if self._timer:
+            self._timer.cancel()
 
     def upcoming_pickups_at_stop(self, offset):
         self._schedule(UpcomingPickups(self._results, self._stop_id, offset))
@@ -221,12 +234,10 @@ class State(object):
         self._start_t = datetime.now()
         self._t = self._start_t
         self.update_on_start()
-        self._timer_id = glib.timeout_add_seconds(60, self.timeout)
         self._active = True
 
     def finish(self, index):
         self.update_on_finish(index)
-        glib.source_remove(self._timer_id)
         self._active = False
 
     def get_visibility(self):
@@ -242,7 +253,7 @@ class State(object):
         return self._panel.model()
 
     def minutes(self):
-        td = self._t - self._start_t
+        td = datetime.now() - self._start_t
         return (td.days * 1440) + (td.seconds / 60)
 
     def panel(self):
@@ -255,19 +266,10 @@ class State(object):
         rv.start()
         return rv
 
-    def timeout(self):
-        self._t = datetime.now()
-        self.panel().change_text()
-        self.update_on_timeout()
-        return self._active
-
     def update_on_start(self):
         pass
 
     def update_on_finish(self, exit_index):
-        pass
-
-    def update_on_timeout(self):
         pass
 
 class Riding(State):
@@ -278,9 +280,6 @@ class Riding(State):
         self.panel().upcoming_stops_on_trip()
 
     def update_on_start(self):
-        self._refresh_pickups()
-
-    def update_on_timeout(self):
         self._refresh_pickups()
 
     def update_on_finish(self, exit_index):
@@ -314,9 +313,6 @@ class WaitForTrips(State):
         r = self.panel().selected_result()
         if exit_index == 0:
             self.panel().model().set_trip(r[0])
-
-    def update_on_timeout(self):
-        self._refresh_pickups()
 
 class WaitForSelectedTrip(WaitForTrips):
     def get_info_text(self, tr):
