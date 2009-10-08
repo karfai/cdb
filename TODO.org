@@ -19,3 +19,5 @@
   CLOSED: [2009-09-19 Sat 19:50]
 * DONE allow for multiple exit points (buttons) from a panel
   CLOSED: [2009-09-19 Sat 19:50]
+* DONE implement a background thread which runs the sqlite queries
+  CLOSED: [2009-10-08 Thu 19:02]
