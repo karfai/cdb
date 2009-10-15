@@ -17,7 +17,7 @@
 
 import pygtk
 pygtk.require('2.0')
-import glib, gtk
+import gtk
 
 import re, threading, Queue
 from datetime import *
@@ -63,22 +63,24 @@ class SchemaThread(threading.Thread):
                 pass
 
 class StoreRequest(object):
-    def __init__(self, results, repeats=True):
-        self._results = results
+    def __init__(self, bridge, repeats=True):
+        self._bridge = bridge
         self._repeats = repeats
 
     def _show(self, l, fn):
-        [self._results.show(*fn(e)) for e in l]
+        self._bridge.show_start()
+        [self._bridge.show(*fn(e)) for e in l]
+        self._bridge.show_finish()
 
     def _show_info(self, o):
-        self._results.show_info(o)
+        self._bridge.show_info(o)
 
     def repeats(self):
         return self._repeats
 
 class StopSearch(StoreRequest):
-    def __init__(self, results, srch):
-        super(StopSearch, self).__init__(results, False)
+    def __init__(self, bridge, srch):
+        super(StopSearch, self).__init__(bridge, False)
         self._srch = srch
 
     def execute(self, st):
@@ -86,8 +88,8 @@ class StopSearch(StoreRequest):
                    lambda stop: [stop.id, stop.label, stop.number, stop.name])
 
 class UpcomingPickups(StoreRequest):
-    def __init__(self, results, stop_id, offset):
-        super(UpcomingPickups, self).__init__(results)
+    def __init__(self, bridge, stop_id, offset):
+        super(UpcomingPickups, self).__init__(bridge)
         self._stop_id = stop_id
         self._offset = offset
 
@@ -98,8 +100,8 @@ class UpcomingPickups(StoreRequest):
                    lambda (pu, tr): [tr.id, tr.route().name, tr.headsign, format_arrival(pu)])
 
 class ShowTrip(StoreRequest):
-    def __init__(self, results, trip_id):
-        super(ShowTrip, self).__init__(results)
+    def __init__(self, bridge, trip_id):
+        super(ShowTrip, self).__init__(bridge)
         self._trip_id = trip_id
 
     def execute(self, st):
@@ -107,8 +109,8 @@ class ShowTrip(StoreRequest):
         self._show_info(trip)
 
 class UpcomingStops(StoreRequest):
-    def __init__(self, results, trip_id):
-        super(UpcomingStops, self).__init__(results)
+    def __init__(self, bridge, trip_id):
+        super(UpcomingStops, self).__init__(bridge)
         self._trip_id = trip_id
 
     def execute(self, st):
@@ -117,6 +119,64 @@ class UpcomingStops(StoreRequest):
         self._show([(pu, pu.stop()) for pu in trip.next_pickups_from_now(5)],
                    lambda (pu, st): [st.id, st.label, st.number, st.name, format_arrival(pu)])
             
+class Bridge(object):
+    def __init__(self, panel, tv):
+        self._tv = tv
+        self._panel = panel
+        self._info_q = Queue.Queue(0)
+        self._results_q = Queue.Queue(0)
+        self._results_ready = threading.Event()
+
+    def show_info(self, o):
+#        print "show_info - in"
+        self._info_q.put_nowait(o)
+#        print "show_info - out"
+
+    def show_start(self):
+        self._results_ready.clear()
+
+    def show_finish(self):
+        self._results_ready.set()
+        self.enable()
+        
+    def show(self, *args):
+#        print "put result"
+        self._results_q.put_nowait(args)
+        
+    def clear(self):
+        self._tv.get_model().clear()
+
+    def disable(self):
+        self._panel.disable()
+
+    def enable(self):
+        self._panel.enable()
+
+    def poll_results(self):
+        self._results_ready.wait()
+        empty = False
+        while not empty:
+            try:
+                args = self._results_q.get(False, 1)
+                if args is None:
+                    break
+                
+#                print "result"
+                tm = self._tv.get_model()
+                it = tm.append()
+                [tm.set(it, i, args[i]) for i in range(0, len(args))]
+            except Queue.Empty:
+#                print "empty"
+                empty = True
+
+    def poll_info(self):
+        try:
+            o = self._info_q.get(False, 1)
+            self._panel.show_info(o)
+        except Queue.Empty:
+            pass
+#            print "empty"
+        
 class Model(object):
     def __init__(self):
         self._q = Queue.Queue(0)
@@ -126,19 +186,22 @@ class Model(object):
         self._timer = None
 
     def _reschedule(self, t, a, expect_results=True):
+        if self._timer:
+            self._timer.cancel()
         self._timer = threading.Timer(t, lambda : self._schedule(a, expect_results))
         self._timer.start()
         
     def _schedule(self, a, expect_results=True):
         if expect_results:
-            self._results.clear()
-            self._results.disable()
+            self._bridge.clear()
+            self._bridge.disable()
+
         self._q.put(a)
         if a.repeats():
             self._reschedule(60.0, a, expect_results)
 
-    def set_display(self, r):
-        self._results = r
+    def set_bridge(self, br):
+        self._bridge = br
 
     def set_stop(self, stop_id):
         self._stop_id = stop_id
@@ -148,27 +211,33 @@ class Model(object):
 
     def get_trip_id(self):
         return self._trip_id
+
+    def poll(self):
+        self._bridge.poll_info()
+        self._bridge.poll_results()
             
     def stop_search(self, s):
-        self._schedule(StopSearch(self._results, s))
+        self._schedule(StopSearch(self._bridge, s))
 
     def stop(self):
         self._e.set()
         self._th.join()
+#        print "background thread finished"
         if self._timer:
             self._timer.cancel()
+#            print "timer cancelled"
 
     def upcoming_pickups_at_stop(self, offset):
-        self._schedule(UpcomingPickups(self._results, self._stop_id, offset))
+        self._schedule(UpcomingPickups(self._bridge, self._stop_id, offset))
 
     def upcoming_stops_on_trip(self):
-        self._schedule(UpcomingStops(self._results, self._trip_id))
+        self._schedule(UpcomingStops(self._bridge, self._trip_id))
 
     def show_current_trip(self):
-        self._schedule(ShowTrip(self._results, self._trip_id), False)
+        self._schedule(ShowTrip(self._bridge, self._trip_id), False)
 
-    def results(self):
-        return self._results
+    def bridge(self):
+        return self._bridge
 
 # GUI (view/control) elements
 
@@ -196,7 +265,9 @@ class NextStateButton(gtk.Button):
         self.connect('clicked', self.act_click, panel, index)
 
     def act_click(self, w, panel, index):
+#        print "clicked - in"
         panel.next(index)
+#        print "clicked - out"
 
 class LocationEntry(gtk.ComboBoxEntry):
     def __init__(self, panel):
@@ -359,32 +430,6 @@ class SelectStop(State):
     def exits(self):
         return [('Wait for buses', WaitAtStop)]
 
-class ResultsRealization(object):
-    def __init__(self, tv, panel):
-        self._tv = tv
-        self._panel = panel
-
-    def _model(self):
-        return self._tv.get_model()
-
-    def show_info(self, stop):
-        self._panel.show_info(stop)
-        
-    def show(self, *args):
-        it = self._model().append()
-        [self._model().set(it, i, args[i]) for i in range(0, len(args))]
-        self.enable()
-        
-    def clear(self):
-        self._model().clear()
-
-    def disable(self):
-        self._tv.set_sensitive(False);
-
-    def enable(self):
-        self._tv.set_sensitive(True);
-        self._panel.select_active()
-        
 class ResultsListModel(gtk.ListStore):
     def __init__(self):
         gtk.ListStore.__init__(self, int, str, str, str, str)
@@ -400,11 +445,14 @@ class MatchId(object):
         return self.it is not None
 
 class ResultsTreeView(gtk.TreeView):
-    def __init__(self):
+    def __init__(self, panel):
         gtk.TreeView.__init__(self, ResultsListModel())
+        self._panel = panel
         self.set_headers_visible(False)
         for i in range(1, self.get_model().get_n_columns()):
             self.append_column(gtk.TreeViewColumn('', gtk.CellRendererText(), markup=i))
+
+        self.connect("notify::sensitive", self.act_notify)
 
     def find(self, id):
         rv = None
@@ -427,6 +475,10 @@ class ResultsTreeView(gtk.TreeView):
         else:
             self.select_first()
 
+    def act_notify(self, w, spec):
+        if w.get_property('sensitive'):
+            self._panel.poll()
+
 class Panel(gtk.Window):
     def __init__(self):
         gtk.Window.__init__(self, gtk.WINDOW_TOPLEVEL)
@@ -440,12 +492,12 @@ class Panel(gtk.Window):
         self._state = SelectStop(self)
 
         self._build_contents()
-        self._model.set_display(ResultsRealization(self._list, self))
+        self._model.set_bridge(Bridge(self, self._list))
         self._state.start()
         self.show_info()
 
     def _build_list(self):
-        self._list = ResultsTreeView()
+        self._list = ResultsTreeView(self)
         self._list.get_selection().connect('changed', self.act_selection)
 
         sw = gtk.ScrolledWindow()
@@ -504,6 +556,14 @@ class Panel(gtk.Window):
         self._state = self._state.next(index)
         self.refresh()
 
+    def disable(self):
+        self._list.set_sensitive(False)
+        self._info.set_sensitive(False)
+
+    def enable(self):
+        self._list.set_sensitive(True)
+        self._info.set_sensitive(True)
+
     def enable_exits(self):
         sel = (self._list.get_selection().count_selected_rows() > 0)
         [w.set_sensitive(sel) for w in self._exits.get_children()]
@@ -521,6 +581,10 @@ class Panel(gtk.Window):
     def clear_results(self):
         self._loc.clear()
         self._list.get_model().clear()
+
+    def poll(self):
+        self.model().poll()
+        self.select_active()
         
     def refresh(self):
         self.show_all()
