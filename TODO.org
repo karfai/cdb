@@ -1,5 +1,8 @@
 * work queue
 ** TODO "hildonize"
+** TODO set_bridge() and Bridge creation should be in Model, poll()'d items should go through Model on the way to the UI objects
+** TODO State.next() runs prev_state.finish(), new_state.start() before returning, this means that during Panel.next(), the current State in Panel will be prev_state(). A new State method, active() should be created to execute when the State is actually the current State.
+** TODO 
 ** TODO Stop.upcoming_pickups() should not list pickups for routes which terminate @ the current stop
 ** TODO Upcoming Stops displayed while riding should be time-offset based on the different b/w now() and the 
    expected pickup time. This assumes that the inter-stop travel time in the schedule is consistent even if
