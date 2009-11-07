@@ -96,6 +96,7 @@ class UpcomingPickups(StoreRequest):
     def execute(self, st):
         stop = st.find_stop(self._stop_id)
         self._show_info(stop)
+#        print "stop_id=%s; stop=%s" % (str(self._stop_id), str(stop))
         self._show([(pu, pu.trip()) for pu in stop.upcoming_pickups(self._offset)],
                    lambda (pu, tr): [tr.id, tr.route().name, tr.headsign, format_arrival(pu)])
 
@@ -107,6 +108,15 @@ class ShowTrip(StoreRequest):
     def execute(self, st):
         trip = st.find_trip(self._trip_id)
         self._show_info(trip)
+
+class ShowStop(StoreRequest):
+    def __init__(self, bridge, stop_id):
+        super(ShowStop, self).__init__(bridge)
+        self._stop_id = stop_id
+
+    def execute(self, st):
+        stop = st.find_stop(self._stop_id)
+        self._show_info(stop)
 
 class UpcomingStops(StoreRequest):
     def __init__(self, bridge, trip_id):
@@ -128,9 +138,8 @@ class Bridge(object):
         self._results_ready = threading.Event()
 
     def show_info(self, o):
-#        print "show_info - in"
+#        print "info < %s" % str(o)
         self._info_q.put_nowait(o)
-#        print "show_info - out"
 
     def show_start(self):
         self._results_ready.clear()
@@ -140,7 +149,6 @@ class Bridge(object):
         self.enable()
         
     def show(self, *args):
-#        print "put result"
         self._results_q.put_nowait(args)
         
     def clear(self):
@@ -172,6 +180,7 @@ class Bridge(object):
     def poll_info(self):
         try:
             o = self._info_q.get(False, 1)
+#            print "info > %s" % str(o)
             self._panel.show_info(o)
         except Queue.Empty:
             pass
@@ -200,6 +209,11 @@ class Model(object):
         if a.repeats():
             self._reschedule(60.0, a, expect_results)
 
+    def kill_current_timer(self):
+        if self._timer:
+            self._timer.cancel()
+            self._timer = None
+
     def set_bridge(self, br):
         self._bridge = br
 
@@ -222,16 +236,17 @@ class Model(object):
     def stop(self):
         self._e.set()
         self._th.join()
-#        print "background thread finished"
         if self._timer:
             self._timer.cancel()
-#            print "timer cancelled"
 
     def upcoming_pickups_at_stop(self, offset):
         self._schedule(UpcomingPickups(self._bridge, self._stop_id, offset))
 
     def upcoming_stops_on_trip(self):
         self._schedule(UpcomingStops(self._bridge, self._trip_id))
+
+    def show_current_stop(self):
+        self._schedule(ShowStop(self._bridge, self._stop_id), False)
 
     def show_current_trip(self):
         self._schedule(ShowTrip(self._bridge, self._trip_id), False)
@@ -265,9 +280,7 @@ class NextStateButton(gtk.Button):
         self.connect('clicked', self.act_click, panel, index)
 
     def act_click(self, w, panel, index):
-#        print "clicked - in"
         panel.next(index)
-#        print "clicked - out"
 
 class LocationEntry(gtk.ComboBoxEntry):
     def __init__(self, panel):
@@ -308,6 +321,7 @@ class State(object):
         self._active = True
 
     def finish(self, index):
+        self._panel.model().kill_current_timer()
         self.update_on_finish(index)
         self._active = False
 
@@ -385,23 +399,6 @@ class WaitForTrips(State):
         if exit_index == 0:
             self.panel().model().set_trip(r[0])
 
-class WaitForSelectedTrip(WaitForTrips):
-    def get_info_text(self, tr):
-        ms = self.minutes() > 0 and ' for %s' % format_minutes(self.minutes()) or ''
-        return 'Waiting for %s%s' % (format_trip(tr), ms)
-
-    def get_active_id(self):
-        return self.panel().model().get_trip_id()
-
-    def update_on_start(self):
-        self.panel().model().show_current_trip()
-
-    def exits(self):
-        return [
-            ('Get on', Riding),
-            ('Different bus', WaitAtStop),
-        ]
-
 class WaitAtStop(WaitForTrips):
     def get_info_text(self, stop):
         ms = self.minutes() > 0 and ' for %s' % format_minutes(self.minutes()) or ''
@@ -409,7 +406,7 @@ class WaitAtStop(WaitForTrips):
 
     def exits(self):
         return [
-            ('Wait for this bus', WaitForSelectedTrip),
+            ('Get on this bus', Riding),
             ('End the trip', SelectStop),
         ]
 
@@ -553,8 +550,11 @@ class Panel(gtk.Window):
         return self._model
 
     def next(self, index):
+#        print "next"
         self._state = self._state.next(index)
+#        print "refresh"
         self.refresh()
+#        print "refreshed"
 
     def disable(self):
         self._list.set_sensitive(False)
