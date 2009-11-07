@@ -1,32 +1,37 @@
-* TODO "hildonize"
-* TODO Stop.upcoming_pickups() should not list pickups for routes which terminate @ the current stop
-* TODO Upcoming Stops displayed while riding should be time-offset based on the different b/w now() and the 
-  expected pickup time. This assumes that the inter-stop travel time in the schedule is consistent even if
-  the pickup is late.
-* TODO While riding, if a Stop is the last stop for the trip, show an indication.
-* TODO persist search history
-* TODO There's something odd going on w/Timers on the device - are they cancelled at the correct time?
-* In the Search Panel, show info text under the list which list the routes servicing the stop when an item is selected
-* DONE track down synchro. issues in current threading approach
-  CLOSED: [2009-10-15 Thu 19:25]
-* DONE keep search history in search location box
-  CLOSED: [2009-09-19 Sat 20:25]
-* DONE storm is probably not available on maemo, so redo schema in pure sqlite
-  CLOSED: [2009-09-19 Sat 18:49]
-* DONE search in the gtk gui
-  CLOSED: [2009-09-07 Mon 01:43]
+* work queue
+** TODO "hildonize"
+** TODO Stop.upcoming_pickups() should not list pickups for routes which terminate @ the current stop
+** TODO Upcoming Stops displayed while riding should be time-offset based on the different b/w now() and the 
+   expected pickup time. This assumes that the inter-stop travel time in the schedule is consistent even if
+   the pickup is late.
+** TODO While riding, if a Stop is the last stop for the trip, show an indication.
+** TODO persist search history
+** DONE There's something odd going on w/Timers on the device - are they cancelled at the correct time?
+   CLOSED: [2009-11-07 Sat 17:52]
+** In the Search Panel, show info text under the list which list the routes servicing the stop when an item is selected
+** DONE track down synchro. issues in current threading approach
+   CLOSED: [2009-10-15 Thu 19:25]
+** DONE keep search history in search location box
+   CLOSED: [2009-09-19 Sat 20:25]
+** DONE storm is probably not available on maemo, so redo schema in pure sqlite
+   CLOSED: [2009-09-19 Sat 18:49]
+** DONE search in the gtk gui
+   CLOSED: [2009-09-07 Mon 01:43]
 
-* DONE "riding" state
-  CLOSED: [2009-09-07 Mon 14:51]
+** DONE "riding" state
+   CLOSED: [2009-09-07 Mon 14:51]
 
-* DONE loop the riding state back to the waiting-at-stop state
-  CLOSED: [2009-09-07 Mon 15:06]
+** DONE loop the riding state back to the waiting-at-stop state
+   CLOSED: [2009-09-07 Mon 15:06]
 
-* DONE add ability to end the trip while waiting at a stop, this should return to the search panel
-  CLOSED: [2009-09-19 Sat 19:50]
-* DONE each state can provide a name for the transition button
-  CLOSED: [2009-09-19 Sat 19:50]
-* DONE allow for multiple exit points (buttons) from a panel
-  CLOSED: [2009-09-19 Sat 19:50]
-* DONE implement a background thread which runs the sqlite queries
-  CLOSED: [2009-10-08 Thu 19:02]
+** DONE add ability to end the trip while waiting at a stop, this should return to the search panel
+   CLOSED: [2009-09-19 Sat 19:50]
+** DONE each state can provide a name for the transition button
+   CLOSED: [2009-09-19 Sat 19:50]
+** DONE allow for multiple exit points (buttons) from a panel
+   CLOSED: [2009-09-19 Sat 19:50]
+** DONE implement a background thread which runs the sqlite queries
+   CLOSED: [2009-10-08 Thu 19:02]
+
+* concepts
+** If we want to track the intentions of the rider, we should try to import data from the travel planner or allow them to input their intended route. This might allow the server-side of the equation to show how rider's intentions deviate from reality.
