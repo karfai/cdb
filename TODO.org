@@ -5,6 +5,8 @@
   the pickup is late.
 * TODO While riding, if a Stop is the last stop for the trip, show an indication.
 * TODO persist search history
+* TODO There's something odd going on w/Timers on the device - are they cancelled at the correct time?
+* In the Search Panel, show info text under the list which list the routes servicing the stop when an item is selected
 * DONE track down synchro. issues in current threading approach
   CLOSED: [2009-10-15 Thu 19:25]
 * DONE keep search history in search location box
