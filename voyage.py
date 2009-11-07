@@ -320,6 +320,9 @@ class State(object):
         self.update_on_start()
         self._active = True
 
+    def active(self):
+        pass
+
     def finish(self, index):
         self._panel.model().kill_current_timer()
         self.update_on_finish(index)
@@ -416,6 +419,11 @@ class SelectStop(State):
 
     def get_details_text(self):
         return 'Stops'
+
+    def active(self):
+        super(SelectStop, self).active()
+        self.panel().show_info()
+
 
     def update_on_start(self):
         self.panel().clear_results()
@@ -552,6 +560,7 @@ class Panel(gtk.Window):
     def next(self, index):
 #        print "next"
         self._state = self._state.next(index)
+        self._state.active()
 #        print "refresh"
         self.refresh()
 #        print "refreshed"
