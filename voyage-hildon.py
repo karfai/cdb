@@ -259,7 +259,7 @@ class Model(object):
 # there is only ever a Panel which is re-built depending on state
 class InfoLabel(gtk.Label):
     def __init__(self, text):
-        gtk.Label.__init__(self, None)
+        gtk.Label.__init__(self, '')
         self.set_property('xalign', 0.0)
 
     def change_text(self, text):
@@ -582,10 +582,13 @@ class Panel(hildon.Window):
 #        print "refreshed"
 
     def disable(self):
+        self._ban = hildon.hildon_banner_show_animation(self, None, 'Updating')
+        self._ban.show()
         self._list.set_sensitive(False)
         self._info.set_sensitive(False)
 
     def enable(self):
+        self._ban.destroy()
         self._list.set_sensitive(True)
         self._info.set_sensitive(True)
 
