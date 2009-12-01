@@ -88,6 +88,26 @@ class Schema(object):
                                            lambda sp : sp.days & fl and True or False)
         return rv
 
+    def update(self, tbl, id, fields):
+        fl = ','.join(['%s=:%s' % (n, n) for n in fields])
+        q = 'UPDATE %s SET %s WHERE id=%s' % (tbl, fl, id)
+
+        c = self._conn.cursor()
+        c.execute(q, fields)
+        c.close()
+
+    def commit(self):
+        self._conn.commit()        
+
+    def get_stop_number_stat(self):
+        rv = [0, 0]
+        for st in self.find_all_stops():
+            if st.number == 0:
+                rv[1] += 1
+            else:
+                rv[0] += 1
+        return rv
+
     def find_one(self, klass, q, args):
         c = self._conn.cursor()
         c.execute(q, args)
@@ -122,6 +142,21 @@ class Schema(object):
                              'SELECT * FROM stops WHERE stops.id=:id',
                              { 'id' : stop_id})
 
+    def find_all_stops(self):
+        return self.find_many(Stop,
+                             'SELECT * FROM stops',
+                             {})
+
+    def find_stop_by_number(self, num):
+        return self.find_one(Stop,
+                             'SELECT * FROM stops WHERE stops.number=:number',
+                             { 'number' : num})
+
+    def find_stop_by_label(self, num):
+        return self.find_one(Stop,
+                             'SELECT * FROM stops WHERE stops.label=:label',
+                             { 'label' : num})
+
     def find_trip(self, trip_id):
         return self.find_one(Trip,
                              'SELECT * FROM trips WHERE trips.id=:id',
@@ -139,6 +174,9 @@ class SObject(object):
     def __init__(self, sc, id):
         self.sc = sc
         self.id = id
+
+    def update(self):
+        self.sc.update(self.table(), self.id, self.fields())
 
 class ServicePeriod(SObject):
     def __init__(self, sc, id, days, start, finish):
@@ -198,6 +236,17 @@ class Stop(SObject):
         self.lat = lat
         self.lon = lon
 
+    def table(self):
+        return 'stops'
+
+    def fields(self):
+        return {
+            'label' : self.label,
+            'number' : self.number,
+            'name' : self.name,
+            'lat' : self.lat,
+            'lon' : self.lon,
+        }
     def upcoming_pickups(self, offset):
         t = secs_elapsed_today()
         r = range(t - 5 * 60, (t + offset * 60) + 1)
@@ -271,9 +320,6 @@ class Trip(SObject):
                                  'SELECT * FROM pickups WHERE pickups.trip_id=:trip_id',
                                  { 'trip_id' : self.id})
     
-def create_store():
-    return Store(create_database('sqlite:test.db'))
-
 def make():
     conn = sqlite3.connect('foo')
     cur = conn.cursor()
