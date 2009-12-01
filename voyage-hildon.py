@@ -17,10 +17,9 @@
 
 import pygtk
 pygtk.require('2.0')
-import gtk
-import hildon
+import gtk, hildon
 
-import re
+import re, threading, Queue
 from datetime import *
 
 import schema
@@ -30,96 +29,215 @@ def format_minutes(m):
     rv = '%i minute%s' % (m, (m > 1) and 's' or '')
     return (m > 60) and '%i:%02i' % (m / 60, m % 60) or rv
 
-class Results(object):
-    def __init__(self):
-        self._real = None
+def format_arrival(pu):
+    rv = 'now'
+    m = pu.minutes_until_arrival()
+    if m < 0:
+        rv = 'Expected %s ago' % format_minutes(abs(m))
+    elif m > 0:
+        rv = 'Arriving in %s' % format_minutes(m)
+    return rv
 
-    def set_realization(self, r):
-        self._real = r
+def format_stop(stop):
+    return '%s (%s/%i)' % (stop.name, stop.label, stop.number)
+
+def format_trip(trip):
+    return '%s %s' % (trip.route().name, trip.headsign)
+
+class SchemaThread(threading.Thread):
+    def __init__(self, q, e):
+        threading.Thread.__init__(self)
+        self._q = q
+        self._e = e
+        
+    def run(self):
+        self._store = schema.Schema()
+        while not self._e.isSet():
+            try:
+                m = self._q.get(False, 1)
+                if m is None:
+                    break
+                
+                m.execute(self._store)
+            except Queue.Empty:
+                pass
+
+class StoreRequest(object):
+    def __init__(self, bridge, repeats=True):
+        self._bridge = bridge
+        self._repeats = repeats
+
+    def _show(self, l, fn):
+        self._bridge.show_start()
+        [self._bridge.show(*fn(e)) for e in l]
+        self._bridge.show_finish()
+
+    def _show_info(self, o):
+        self._bridge.show_info(o)
+
+    def repeats(self):
+        return self._repeats
+
+class StopSearch(StoreRequest):
+    def __init__(self, bridge, srch):
+        super(StopSearch, self).__init__(bridge, False)
+        self._srch = srch
+
+    def execute(self, st):
+        self._show(st.stop_search(self._srch),
+                   lambda stop: [stop.id, stop.label, stop.number, stop.name])
+
+class UpcomingPickups(StoreRequest):
+    def __init__(self, bridge, stop_id, offset):
+        super(UpcomingPickups, self).__init__(bridge)
+        self._stop_id = stop_id
+        self._offset = offset
+
+    def execute(self, st):
+        stop = st.find_stop(self._stop_id)
+        self._show_info(stop)
+        self._show([(pu, pu.trip()) for pu in stop.upcoming_pickups(self._offset)],
+                   lambda (pu, tr): [tr.id, tr.route().name, tr.headsign, format_arrival(pu)])
+
+class ShowTrip(StoreRequest):
+    def __init__(self, bridge, trip_id):
+        super(ShowTrip, self).__init__(bridge)
+        self._trip_id = trip_id
+
+    def execute(self, st):
+        trip = st.find_trip(self._trip_id)
+        self._show_info(trip)
+
+class UpcomingStops(StoreRequest):
+    def __init__(self, bridge, trip_id):
+        super(UpcomingStops, self).__init__(bridge)
+        self._trip_id = trip_id
+
+    def execute(self, st):
+        trip = st.find_trip(self._trip_id)
+        self._show_info(trip)
+        self._show([(pu, pu.stop()) for pu in trip.next_pickups_from_now(5)],
+                   lambda (pu, st): [st.id, st.label, st.number, st.name, format_arrival(pu)])
+            
+class Bridge(object):
+    def __init__(self, panel, tv):
+        self._tv = tv
+        self._panel = panel
+        self._info_q = Queue.Queue(0)
+        self._results_q = Queue.Queue(0)
+        self._results_ready = threading.Event()
+
+    def show_info(self, o):
+#        print "show_info - in"
+        self._info_q.put_nowait(o)
+#        print "show_info - out"
+
+    def show_start(self):
+        self._results_ready.clear()
+
+    def show_finish(self):
+        self._results_ready.set()
+        self.enable()
         
     def show(self, *args):
-        if self._real:
-            self._real.append(*args)
-
+#        print "put result"
+        self._results_q.put_nowait(args)
+        
     def clear(self):
-        if self._real:
-            self._real.clear()
+        self._tv.get_model().clear()
+
+    def disable(self):
+        self._panel.disable()
+
+    def enable(self):
+        self._panel.enable()
+
+    def poll_results(self):
+        self._results_ready.wait()
+        empty = False
+        while not empty:
+            try:
+                args = self._results_q.get(False, 1)
+                if args is None:
+                    break
+                
+#                print "result"
+                tm = self._tv.get_model()
+                it = tm.append()
+                [tm.set(it, i, args[i]) for i in range(0, len(args))]
+            except Queue.Empty:
+#                print "empty"
+                empty = True
+
+    def poll_info(self):
+        try:
+            o = self._info_q.get(False, 1)
+            self._panel.show_info(o)
+        except Queue.Empty:
+            pass
+#            print "empty"
         
 class Model(object):
     def __init__(self):
-        self._store = schema.Schema()
-        self._results = Results()
-        self._stop = None
-        self._trip = None
+        self._q = Queue.Queue(0)
+        self._e = threading.Event()
+        self._th = SchemaThread(self._q, self._e)
+        self._th.start()
+        self._timer = None
 
-    def _build_search(self, s):
-        rv = None
-        for p in srch_pats:
-            mt = re.match(p[0], s)
-            if mt:
-                rv = p[1](mt.groups())
-                
-            if rv:
-                break
+    def _reschedule(self, t, a, expect_results=True):
+        if self._timer:
+            self._timer.cancel()
+        self._timer = threading.Timer(t, lambda : self._schedule(a, expect_results))
+        self._timer.start()
         
-        return rv
+    def _schedule(self, a, expect_results=True):
+        if expect_results:
+            self._bridge.clear()
+            self._bridge.disable()
 
-    def _show_stops(self, stops):
-        self._results.clear()
-        for stop in stops:
-            self._results.show(stop.id, stop.label, stop.number, stop.name)
+        self._q.put(a)
+        if a.repeats():
+            self._reschedule(60.0, a, expect_results)
 
-    def format_stop(self):
-        return '%s (%s/%i)' % (self._stop.name, self._stop.label, self._stop.number)
-
-    def format_trip(self):
-        return '%s %s' % (self._trip.route().name, self._trip.headsign)
+    def set_bridge(self, br):
+        self._bridge = br
 
     def set_stop(self, stop_id):
-        self._stop = self._store.find_stop(stop_id)
+        self._stop_id = stop_id
             
     def set_trip(self, trip_id):
-        self._trip = self._store.find_trip(trip_id)
+        self._trip_id = trip_id
 
     def get_trip_id(self):
-        rv = None
-        if self._trip:
-            rv = self._trip.id
-        return rv
+        return self._trip_id
+
+    def poll(self):
+        self._bridge.poll_info()
+        self._bridge.poll_results()
             
     def stop_search(self, s):
-        self._show_stops(self._store.stop_search(s))
+        self._schedule(StopSearch(self._bridge, s))
 
-    def _format_arrival(self, pu):
-        rv = 'now'
-        m = pu.minutes_until_arrival()
-        if m < 0:
-            rv = 'Expected %s ago' % format_minutes(abs(m))
-        elif m > 0:
-            rv = 'Arriving in %s' % format_minutes(m)
-        return rv
+    def stop(self):
+        self._e.set()
+        self._th.join()
+#        print "background thread finished"
+        if self._timer:
+            self._timer.cancel()
+#            print "timer cancelled"
 
     def upcoming_pickups_at_stop(self, offset):
-        b = hildon.hildon_banner_show_animation(w, None, 'Next')
-        b.show()
-        self._results.clear()
-        for pu in self._stop.upcoming_pickups(offset):
-            tr = pu.trip()
-            self._results.show(tr.id, tr.route().name, tr.headsign, self._format_arrival(pu))
-        b.destroy()
+        self._schedule(UpcomingPickups(self._bridge, self._stop_id, offset))
 
     def upcoming_stops_on_trip(self):
-        b = hildon.hildon_banner_show_animation(w, None, 'Next')
-        b.show()
-        self._results.clear()
-        if self._trip:
-            for pu in self._trip.next_pickups_from_now(5):
-                st = pu.stop()
-                self._results.show(st.id, st.label, st.number, st.name, self._format_arrival(pu))
-        b.destroy()
+        self._schedule(UpcomingStops(self._bridge, self._trip_id))
 
-    def results(self):
-        return self._results
+    def show_current_trip(self):
+        self._schedule(ShowTrip(self._bridge, self._trip_id), False)
+
+    def bridge(self):
+        return self._bridge
 
 # GUI (view/control) elements
 
@@ -130,7 +248,7 @@ class InfoLabel(gtk.Label):
         self.set_property('xalign', 0.0)
 
     def change_text(self, text):
-        self.set_markup('<span size="x-large">%s</span>' % text)
+        self.set_markup('<span size="large">%s</span>' % text)
         
 class FindButton(gtk.Button):
     def __init__(self, panel, loc):
@@ -147,7 +265,9 @@ class NextStateButton(gtk.Button):
         self.connect('clicked', self.act_click, panel, index)
 
     def act_click(self, w, panel, index):
+#        print "clicked - in"
         panel.next(index)
+#        print "clicked - out"
 
 class LocationEntry(gtk.ComboBoxEntry):
     def __init__(self, panel):
@@ -176,50 +296,6 @@ class LocationEntry(gtk.ComboBoxEntry):
         self.store_current()
         panel.stop_search()
 
-class ResultsListModel(gtk.ListStore):
-    def __init__(self, results):
-        gtk.ListStore.__init__(self, int, str, str, str, str)
-        results.set_realization(self)
-
-    def append(self, *args):
-        it = gtk.ListStore.append(self)
-        [self.set(it, i, args[i]) for i in range(0, len(args))]
-            
-class MatchId(object):
-    def __init__(self, id):
-        self.id = id
-        self.it = None
-
-    def check(self, m, p, it):
-        if self.id == m.get_value(it, 0):
-            self.it = it
-        return self.it is not None
-
-class ResultsTreeView(gtk.TreeView):
-    def __init__(self, results):
-        gtk.TreeView.__init__(self, ResultsListModel(results))
-        self.set_headers_visible(False)
-        for i in range(1, self.get_model().get_n_columns()):
-            self.append_column(gtk.TreeViewColumn('', gtk.CellRendererText(), markup=i))
-
-    def find(self, id):
-        rv = None
-        if id:
-            idm = MatchId(id)
-            self.get_model().foreach(idm.check)
-            rv = idm.it
-        return rv
-
-    def select_first(self):
-        self.get_selection().select_path(0)
-
-    def select_id(self, active_id):
-        it = self.find(active_id)
-        if it:
-            self.get_selection().select_iter(it)
-        else:
-            self.select_first()
-
 class State(object):
     def __init__(self, panel):
         self._panel = panel
@@ -229,19 +305,14 @@ class State(object):
         self._start_t = datetime.now()
         self._t = self._start_t
         self.update_on_start()
-#        self._timer_id = gtk.timeout_add_seconds(60, self.timeout)
         self._active = True
 
     def finish(self, index):
         self.update_on_finish(index)
-#        glib.source_remove(self._timer_id)
         self._active = False
 
     def get_visibility(self):
         return (True, True)
-
-    def get_info_text(self):
-        return ''
 
     def get_details_text(self):
         return ''
@@ -253,7 +324,7 @@ class State(object):
         return self._panel.model()
 
     def minutes(self):
-        td = self._t - self._start_t
+        td = datetime.now() - self._start_t
         return (td.days * 1440) + (td.seconds / 60)
 
     def panel(self):
@@ -266,19 +337,10 @@ class State(object):
         rv.start()
         return rv
 
-    def timeout(self):
-        self._t = datetime.now()
-        self.panel().change_text()
-        self.update_on_timeout()
-        return self._active
-
     def update_on_start(self):
         pass
 
     def update_on_finish(self, exit_index):
-        pass
-
-    def update_on_timeout(self):
         pass
 
 class Riding(State):
@@ -291,16 +353,13 @@ class Riding(State):
     def update_on_start(self):
         self._refresh_pickups()
 
-    def update_on_timeout(self):
-        self._refresh_pickups()
-
     def update_on_finish(self, exit_index):
         r = self.panel().selected_result()
         self.panel().model().set_stop(r[0])
 
-    def get_info_text(self):
+    def get_info_text(self, tr):
         ms = self.minutes() > 0 and ' for %s' % format_minutes(self.minutes()) or ''
-        return 'Riding %s%s' % (self.panel().model().format_trip(), ms)
+        return 'Riding %s%s' % (format_trip(tr), ms)
 
     def get_details_text(self):
         return 'Upcoming stops'
@@ -323,21 +382,19 @@ class WaitForTrips(State):
 
     def update_on_finish(self, exit_index):
         r = self.panel().selected_result()
-        self.panel().model().set_trip(r[0])
-
-    def update_on_timeout(self):
-        self._refresh_pickups()
+        if exit_index == 0:
+            self.panel().model().set_trip(r[0])
 
 class WaitForSelectedTrip(WaitForTrips):
-    def get_info_text(self):
+    def get_info_text(self, tr):
         ms = self.minutes() > 0 and ' for %s' % format_minutes(self.minutes()) or ''
-        return 'Waiting for %s%s' % (self.panel().model().format_trip(), ms)
+        return 'Waiting for %s%s' % (format_trip(tr), ms)
 
     def get_active_id(self):
         return self.panel().model().get_trip_id()
 
     def update_on_start(self):
-        pass
+        self.panel().model().show_current_trip()
 
     def exits(self):
         return [
@@ -346,9 +403,9 @@ class WaitForSelectedTrip(WaitForTrips):
         ]
 
 class WaitAtStop(WaitForTrips):
-    def get_info_text(self):
+    def get_info_text(self, stop):
         ms = self.minutes() > 0 and ' for %s' % format_minutes(self.minutes()) or ''
-        return 'Waiting at %s%s' % (self.panel().model().format_stop(), ms)
+        return 'Waiting at %s%s' % (format_stop(stop), ms)
 
     def exits(self):
         return [
@@ -357,7 +414,7 @@ class WaitAtStop(WaitForTrips):
         ]
 
 class SelectStop(State):
-    def get_info_text(self):
+    def get_info_text(self, o):
         return 'Where are you now?'
 
     def get_details_text(self):
@@ -373,6 +430,55 @@ class SelectStop(State):
     def exits(self):
         return [('Wait for buses', WaitAtStop)]
 
+class ResultsListModel(gtk.ListStore):
+    def __init__(self):
+        gtk.ListStore.__init__(self, int, str, str, str, str)
+            
+class MatchId(object):
+    def __init__(self, id):
+        self.id = id
+        self.it = None
+
+    def check(self, m, p, it):
+        if self.id == m.get_value(it, 0):
+            self.it = it
+        return self.it is not None
+
+class ResultsTreeView(gtk.TreeView):
+    def __init__(self, panel):
+        gtk.TreeView.__init__(self, ResultsListModel())
+        self._panel = panel
+        self.set_headers_visible(False)
+        for i in range(1, self.get_model().get_n_columns()):
+            self.append_column(gtk.TreeViewColumn('', gtk.CellRendererText(), markup=i))
+
+        self.connect("notify::sensitive", self.act_notify)
+
+    def find(self, id):
+        rv = None
+        if id:
+            idm = MatchId(id)
+            self.get_model().foreach(idm.check)
+            rv = idm.it
+        return rv
+
+    def select_first(self):
+        self.get_selection().select_path(0)
+
+    def select(self, it):
+        self.get_selection().select_iter(it)
+
+    def select_id(self, active_id):
+        it = self.find(active_id)
+        if it:
+            self.select(it)
+        else:
+            self.select_first()
+
+    def act_notify(self, w, spec):
+        if w.get_property('sensitive'):
+            self._panel.poll()
+
 class Panel(hildon.Window):
     def __init__(self):
         hildon.Window.__init__(self)
@@ -380,6 +486,7 @@ class Panel(hildon.Window):
         self.set_title('voyageur')
         self.set_icon_from_file('icon.png')
         self.set_border_width(6)
+
         self.connect('destroy', self.act_quit)
         self.connect('key-press-event', self.act_key)
         self.connect('window-state-event', self.act_state)
@@ -388,12 +495,13 @@ class Panel(hildon.Window):
         self._state = SelectStop(self)
 
         self._build_contents()
+        self._model.set_bridge(Bridge(self, self._list))
         self._state.start()
+        self.show_info()
 
     def _build_list(self):
-        self._list = ResultsTreeView(self._model.results())
+        self._list = ResultsTreeView(self)
         self._list.get_selection().connect('changed', self.act_selection)
-        
 
         sw = gtk.ScrolledWindow()
         sw.set_shadow_type(gtk.SHADOW_ETCHED_IN)
@@ -435,6 +543,7 @@ class Panel(hildon.Window):
         self.add(vb)
 
     def act_quit(self, w):
+        self._model.stop()
         gtk.main_quit()        
 
     def act_selection(self, sel):
@@ -463,6 +572,17 @@ class Panel(hildon.Window):
         self._state = self._state.next(index)
         self.refresh()
 
+    def disable(self):
+        self._ban = hildon.hildon_banner_show_animation(w, None, 'Updating')
+        self._ban.show()
+        self._list.set_sensitive(False)
+        self._info.set_sensitive(False)
+
+    def enable(self):
+        self._ban.destroy()
+        self._list.set_sensitive(True)
+        self._info.set_sensitive(True)
+
     def enable_exits(self):
         sel = (self._list.get_selection().count_selected_rows() > 0)
         [w.set_sensitive(sel) for w in self._exits.get_children()]
@@ -473,18 +593,21 @@ class Panel(hildon.Window):
         [self._exits.add(NextStateButton(ex[i][0], self, i)) for i in range(0, len(ex))]
         self._exits.show_all()
 
-    def change_text(self):
-        self._info.change_text(self._state.get_info_text())
+    def show_info(self, o=None):
+        self._info.change_text(self._state.get_info_text(o))
         self._frame.set_label(self._state.get_details_text())
 
     def clear_results(self):
         self._loc.clear()
         self._list.get_model().clear()
+
+    def poll(self):
+        self.model().poll()
+        self.select_active()
         
     def refresh(self):
         self.show_all()
 
-        self.change_text()
         self.change_exits()
         self.enable_exits()
 
@@ -497,8 +620,6 @@ class Panel(hildon.Window):
             self._search_box.show_all()
         else:
             self._search_box.hide_all()
-
-        self.select_active()
 
     def select_active(self):
         self._list.select_id(self._state.get_active_id())
@@ -514,16 +635,14 @@ class Panel(hildon.Window):
 
     def stop_search(self):
         self._model.stop_search(self.get_query_text())        
-        self._list.select_first()
 
     def upcoming_pickups_at_stop(self, offset):
         self._model.upcoming_pickups_at_stop(offset)
-        self.select_active()
 
     def upcoming_stops_on_trip(self):
         self._model.upcoming_stops_on_trip()
-        self.select_active()
 
+gtk.gdk.threads_init()
 app = hildon.Program()
 w = Panel()
 app.add_window(w)

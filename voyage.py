@@ -39,7 +39,7 @@ def format_arrival(pu):
     return rv
 
 def format_stop(stop):
-    return '%s (%s/%i)' % (stop.name, stop.label, stop.number)
+    return '%s %s' % (str(stop.number).zfill(4), stop.name)
 
 def format_trip(trip):
     return '%s %s' % (trip.route().name, trip.headsign)
@@ -85,7 +85,7 @@ class StopSearch(StoreRequest):
 
     def execute(self, st):
         self._show(st.stop_search(self._srch),
-                   lambda stop: [stop.id, stop.label, stop.number, stop.name])
+                   lambda stop: [stop.id, str(stop.number).zfill(4), stop.name])
 
 class UpcomingPickups(StoreRequest):
     def __init__(self, bridge, stop_id, offset):
@@ -127,7 +127,7 @@ class UpcomingStops(StoreRequest):
         trip = st.find_trip(self._trip_id)
         self._show_info(trip)
         self._show([(pu, pu.stop()) for pu in trip.next_pickups_from_now(5)],
-                   lambda (pu, st): [st.id, st.label, st.number, st.name, format_arrival(pu)])
+                   lambda (pu, st): [st.id, st.number, st.name, format_arrival(pu)])
             
 class Bridge(object):
     def __init__(self, panel, tv):
@@ -376,7 +376,7 @@ class Riding(State):
 
     def get_info_text(self, tr):
         ms = self.minutes() > 0 and ' for %s' % format_minutes(self.minutes()) or ''
-        return 'Riding %s%s' % (format_trip(tr), ms)
+        return '%s%s' % (format_trip(tr), ms)
 
     def get_details_text(self):
         return 'Upcoming stops'
@@ -405,7 +405,7 @@ class WaitForTrips(State):
 class WaitAtStop(WaitForTrips):
     def get_info_text(self, stop):
         ms = self.minutes() > 0 and ' for %s' % format_minutes(self.minutes()) or ''
-        return 'Waiting at %s%s' % (format_stop(stop), ms)
+        return '%s%s' % (format_stop(stop), ms)
 
     def exits(self):
         return [
