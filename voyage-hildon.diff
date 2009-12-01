@@ -1,0 +1,69 @@
+--- voyage-hildon.py	2009-11-30 19:47:52.000000000 -0500
++++ voyage-hildon.py.o	2009-11-30 19:52:05.000000000 -0500
+@@ -17,7 +17,7 @@
+ 
+ import pygtk
+ pygtk.require('2.0')
+-import gtk
++import gtk, hildon
+ 
+ import re, threading, Queue
+ from datetime import *
+@@ -52,7 +52,7 @@
+         
+     def run(self):
+         self._store = schema.Schema()
+-        while not self._e.is_set():
++        while not self._e.isSet():
+             try:
+                 m = self._q.get(False, 1)
+                 if m is None:
+@@ -484,14 +479,17 @@
+         if w.get_property('sensitive'):
+             self._panel.poll()
+ 
+-class Panel(gtk.Window):
++class Panel(hildon.Window):
+     def __init__(self):
+-        gtk.Window.__init__(self, gtk.WINDOW_TOPLEVEL)
++        hildon.Window.__init__(self)
+ 
+         self.set_title('voyageur')
+         self.set_icon_from_file('icon.png')
+         self.set_border_width(6)
++
+         self.connect('destroy', self.act_quit)
++        self.connect('key-press-event', self.act_key)
++        self.connect('window-state-event', self.act_state)
+ 
+         self._model = Model()
+         self._state = SelectStop(self)
+@@ -551,6 +549,19 @@
+     def act_selection(self, sel):
+         self.enable_exits()
+ 
++    def act_key(self, w, evt, *args):
++        if evt.keyval == gtk.keysyms.F6:
++            if self.window_in_fullscreen:
++                self.unfullscreen()
++            else:
++                self.fullscreen()
++
++    def act_state(self, w, evt, *args):
++        if evt.new_window_state & gtk.gdk.WINDOW_STATE_FULLSCREEN:
++            self.window_in_fullscreen = True
++        else:
++            self.window_in_fullscreen = False
++
+     def get_query_text(self):
+         return self._loc.get_active_text()
+ 
+@@ -633,6 +643,8 @@
+         self._model.upcoming_stops_on_trip()
+ 
+ gtk.gdk.threads_init()
++app = hildon.Program()
+ w = Panel()
++app.add_window(w)
+ w.refresh()
+ gtk.main()

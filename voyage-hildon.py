@@ -17,7 +17,7 @@
 
 import pygtk
 pygtk.require('2.0')
-import gtk, hildon
+import gtk
 
 import re, threading, Queue
 from datetime import *
@@ -39,7 +39,7 @@ def format_arrival(pu):
     return rv
 
 def format_stop(stop):
-    return '%s (%s/%i)' % (stop.name, stop.label, stop.number)
+    return '%s %s' % (str(stop.number).zfill(4), stop.name)
 
 def format_trip(trip):
     return '%s %s' % (trip.route().name, trip.headsign)
@@ -52,7 +52,7 @@ class SchemaThread(threading.Thread):
         
     def run(self):
         self._store = schema.Schema()
-        while not self._e.isSet():
+        while not self._e.is_set():
             try:
                 m = self._q.get(False, 1)
                 if m is None:
@@ -85,7 +85,7 @@ class StopSearch(StoreRequest):
 
     def execute(self, st):
         self._show(st.stop_search(self._srch),
-                   lambda stop: [stop.id, stop.label, stop.number, stop.name])
+                   lambda stop: [stop.id, str(stop.number).zfill(4), stop.name])
 
 class UpcomingPickups(StoreRequest):
     def __init__(self, bridge, stop_id, offset):
@@ -96,6 +96,7 @@ class UpcomingPickups(StoreRequest):
     def execute(self, st):
         stop = st.find_stop(self._stop_id)
         self._show_info(stop)
+#        print "stop_id=%s; stop=%s" % (str(self._stop_id), str(stop))
         self._show([(pu, pu.trip()) for pu in stop.upcoming_pickups(self._offset)],
                    lambda (pu, tr): [tr.id, tr.route().name, tr.headsign, format_arrival(pu)])
 
@@ -108,6 +109,15 @@ class ShowTrip(StoreRequest):
         trip = st.find_trip(self._trip_id)
         self._show_info(trip)
 
+class ShowStop(StoreRequest):
+    def __init__(self, bridge, stop_id):
+        super(ShowStop, self).__init__(bridge)
+        self._stop_id = stop_id
+
+    def execute(self, st):
+        stop = st.find_stop(self._stop_id)
+        self._show_info(stop)
+
 class UpcomingStops(StoreRequest):
     def __init__(self, bridge, trip_id):
         super(UpcomingStops, self).__init__(bridge)
@@ -117,7 +127,7 @@ class UpcomingStops(StoreRequest):
         trip = st.find_trip(self._trip_id)
         self._show_info(trip)
         self._show([(pu, pu.stop()) for pu in trip.next_pickups_from_now(5)],
-                   lambda (pu, st): [st.id, st.label, st.number, st.name, format_arrival(pu)])
+                   lambda (pu, st): [st.id, st.number, st.name, format_arrival(pu)])
             
 class Bridge(object):
     def __init__(self, panel, tv):
@@ -128,9 +138,8 @@ class Bridge(object):
         self._results_ready = threading.Event()
 
     def show_info(self, o):
-#        print "show_info - in"
+#        print "info < %s" % str(o)
         self._info_q.put_nowait(o)
-#        print "show_info - out"
 
     def show_start(self):
         self._results_ready.clear()
@@ -140,7 +149,6 @@ class Bridge(object):
         self.enable()
         
     def show(self, *args):
-#        print "put result"
         self._results_q.put_nowait(args)
         
     def clear(self):
@@ -172,6 +180,7 @@ class Bridge(object):
     def poll_info(self):
         try:
             o = self._info_q.get(False, 1)
+#            print "info > %s" % str(o)
             self._panel.show_info(o)
         except Queue.Empty:
             pass
@@ -200,6 +209,11 @@ class Model(object):
         if a.repeats():
             self._reschedule(60.0, a, expect_results)
 
+    def kill_current_timer(self):
+        if self._timer:
+            self._timer.cancel()
+            self._timer = None
+
     def set_bridge(self, br):
         self._bridge = br
 
@@ -222,16 +236,17 @@ class Model(object):
     def stop(self):
         self._e.set()
         self._th.join()
-#        print "background thread finished"
         if self._timer:
             self._timer.cancel()
-#            print "timer cancelled"
 
     def upcoming_pickups_at_stop(self, offset):
         self._schedule(UpcomingPickups(self._bridge, self._stop_id, offset))
 
     def upcoming_stops_on_trip(self):
         self._schedule(UpcomingStops(self._bridge, self._trip_id))
+
+    def show_current_stop(self):
+        self._schedule(ShowStop(self._bridge, self._stop_id), False)
 
     def show_current_trip(self):
         self._schedule(ShowTrip(self._bridge, self._trip_id), False)
@@ -244,11 +259,11 @@ class Model(object):
 # there is only ever a Panel which is re-built depending on state
 class InfoLabel(gtk.Label):
     def __init__(self, text):
-        gtk.Label.__init__(self, '')
+        gtk.Label.__init__(self, None)
         self.set_property('xalign', 0.0)
 
     def change_text(self, text):
-        self.set_markup('<span size="large">%s</span>' % text)
+        self.set_markup('<span size="x-large">%s</span>' % text)
         
 class FindButton(gtk.Button):
     def __init__(self, panel, loc):
@@ -265,9 +280,7 @@ class NextStateButton(gtk.Button):
         self.connect('clicked', self.act_click, panel, index)
 
     def act_click(self, w, panel, index):
-#        print "clicked - in"
         panel.next(index)
-#        print "clicked - out"
 
 class LocationEntry(gtk.ComboBoxEntry):
     def __init__(self, panel):
@@ -307,7 +320,11 @@ class State(object):
         self.update_on_start()
         self._active = True
 
+    def active(self):
+        pass
+
     def finish(self, index):
+        self._panel.model().kill_current_timer()
         self.update_on_finish(index)
         self._active = False
 
@@ -359,7 +376,7 @@ class Riding(State):
 
     def get_info_text(self, tr):
         ms = self.minutes() > 0 and ' for %s' % format_minutes(self.minutes()) or ''
-        return 'Riding %s%s' % (format_trip(tr), ms)
+        return '%s%s' % (format_trip(tr), ms)
 
     def get_details_text(self):
         return 'Upcoming stops'
@@ -385,31 +402,14 @@ class WaitForTrips(State):
         if exit_index == 0:
             self.panel().model().set_trip(r[0])
 
-class WaitForSelectedTrip(WaitForTrips):
-    def get_info_text(self, tr):
-        ms = self.minutes() > 0 and ' for %s' % format_minutes(self.minutes()) or ''
-        return 'Waiting for %s%s' % (format_trip(tr), ms)
-
-    def get_active_id(self):
-        return self.panel().model().get_trip_id()
-
-    def update_on_start(self):
-        self.panel().model().show_current_trip()
-
-    def exits(self):
-        return [
-            ('Get on', Riding),
-            ('Different bus', WaitAtStop),
-        ]
-
 class WaitAtStop(WaitForTrips):
     def get_info_text(self, stop):
         ms = self.minutes() > 0 and ' for %s' % format_minutes(self.minutes()) or ''
-        return 'Waiting at %s%s' % (format_stop(stop), ms)
+        return '%s%s' % (format_stop(stop), ms)
 
     def exits(self):
         return [
-            ('Wait for this bus', WaitForSelectedTrip),
+            ('Get on this bus', Riding),
             ('End the trip', SelectStop),
         ]
 
@@ -419,6 +419,11 @@ class SelectStop(State):
 
     def get_details_text(self):
         return 'Stops'
+
+    def active(self):
+        super(SelectStop, self).active()
+        self.panel().show_info()
+
 
     def update_on_start(self):
         self.panel().clear_results()
@@ -479,17 +484,14 @@ class ResultsTreeView(gtk.TreeView):
         if w.get_property('sensitive'):
             self._panel.poll()
 
-class Panel(hildon.Window):
+class Panel(gtk.Window):
     def __init__(self):
-        hildon.Window.__init__(self)
+        gtk.Window.__init__(self, gtk.WINDOW_TOPLEVEL)
 
         self.set_title('voyageur')
         self.set_icon_from_file('icon.png')
         self.set_border_width(6)
-
         self.connect('destroy', self.act_quit)
-        self.connect('key-press-event', self.act_key)
-        self.connect('window-state-event', self.act_state)
 
         self._model = Model()
         self._state = SelectStop(self)
@@ -549,19 +551,6 @@ class Panel(hildon.Window):
     def act_selection(self, sel):
         self.enable_exits()
 
-    def act_key(self, w, evt, *args):
-        if evt.keyval == gtk.keysyms.F6:
-            if self.window_in_fullscreen:
-                self.unfullscreen()
-            else:
-                self.fullscreen()
-
-    def act_state(self, w, evt, *args):
-        if evt.new_window_state & gtk.gdk.WINDOW_STATE_FULLSCREEN:
-            self.window_in_fullscreen = True
-        else:
-            self.window_in_fullscreen = False
-
     def get_query_text(self):
         return self._loc.get_active_text()
 
@@ -569,17 +558,18 @@ class Panel(hildon.Window):
         return self._model
 
     def next(self, index):
+#        print "next"
         self._state = self._state.next(index)
+        self._state.active()
+#        print "refresh"
         self.refresh()
+#        print "refreshed"
 
     def disable(self):
-        self._ban = hildon.hildon_banner_show_animation(w, None, 'Updating')
-        self._ban.show()
         self._list.set_sensitive(False)
         self._info.set_sensitive(False)
 
     def enable(self):
-        self._ban.destroy()
         self._list.set_sensitive(True)
         self._info.set_sensitive(True)
 
@@ -643,8 +633,6 @@ class Panel(hildon.Window):
         self._model.upcoming_stops_on_trip()
 
 gtk.gdk.threads_init()
-app = hildon.Program()
 w = Panel()
-app.add_window(w)
 w.refresh()
 gtk.main()
