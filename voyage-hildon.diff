@@ -1,5 +1,5 @@
---- voyage-hildon.py	2009-11-30 19:57:12.000000000 -0500
-+++ voyage-hildon.py.o	2009-11-30 20:11:39.000000000 -0500
+--- voyage-hildon.py	2009-12-12 13:28:46.000000000 -0500
++++ voyage-hildon.py.o	2009-12-12 13:30:55.000000000 -0500
 @@ -17,7 +17,7 @@
  
  import pygtk
@@ -18,8 +18,8 @@
              try:
                  m = self._q.get(False, 1)
                  if m is None:
-@@ -259,7 +259,7 @@
- # there is only ever a Panel which is re-built depending on state
+@@ -402,7 +402,7 @@
+ 
  class InfoLabel(gtk.Label):
      def __init__(self, text):
 -        gtk.Label.__init__(self, None)
@@ -27,9 +27,9 @@
          self.set_property('xalign', 0.0)
  
      def change_text(self, text):
-@@ -484,14 +484,17 @@
-         if w.get_property('sensitive'):
-             self._panel.poll()
+@@ -452,14 +452,17 @@
+         self.store_current()
+         panel.stop_search()
  
 -class Panel(gtk.Window):
 +class Panel(hildon.Window):
@@ -45,9 +45,9 @@
 +        self.connect('key-press-event', self.act_key)
 +        self.connect('window-state-event', self.act_state)
  
-         self._model = Model()
-         self._state = SelectStop(self)
-@@ -551,6 +554,19 @@
+         self._ready_for_results = threading.Event()
+         self._model = Model(self)
+@@ -525,6 +528,19 @@
      def act_selection(self, sel):
          self.enable_exits()
  
@@ -67,9 +67,9 @@
      def get_query_text(self):
          return self._loc.get_active_text()
  
-@@ -566,10 +582,13 @@
- #        print "refreshed"
- 
+@@ -541,10 +557,13 @@
+         self._list.get_model().clear()
+         
      def disable(self):
 +        self._ban = hildon.hildon_banner_show_animation(self, None, 'Updating')
 +        self._ban.show()
@@ -81,7 +81,7 @@
          self._list.set_sensitive(True)
          self._info.set_sensitive(True)
  
-@@ -633,6 +652,8 @@
+@@ -623,6 +642,8 @@
          self._model.upcoming_stops_on_trip()
  
  gtk.gdk.threads_init()
