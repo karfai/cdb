@@ -384,7 +384,7 @@ class Riding(State):
     def exits(self):
         return [('Get off', WaitAtStop)]
 
-class WaitForTrips(State):
+class WaitAtStop(State):
     def get_visibility(self):
         return (True, False)
 
@@ -402,7 +402,6 @@ class WaitForTrips(State):
         if exit_index == 0:
             self.panel().model().set_trip(r[0])
 
-class WaitAtStop(WaitForTrips):
     def get_info_text(self, stop):
         ms = self.minutes() > 0 and ' for %s' % format_minutes(self.minutes()) or ''
         return '%s%s' % (format_stop(stop), ms)
@@ -510,9 +509,15 @@ class Panel(gtk.Window):
         sw.set_policy(gtk.POLICY_AUTOMATIC, gtk.POLICY_AUTOMATIC)
         sw.add(self._list)
 
+        self._details = gtk.Label('More details....')
+
+        vbox = gtk.VBox(False, 2)
+        vbox.pack_start(sw, True, True, 0)
+#        vbox.pack_end(self._details, False, True, 0)
+
         al = gtk.Alignment(0.5, 0.5, 1.0, 1.0)
         al.set_padding(0, 6, 4, 4)
-        al.add(sw)
+        al.add(vbox)
 
         self._frame = gtk.Frame('')
         self._frame.add(al)
