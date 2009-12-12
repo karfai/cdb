@@ -67,8 +67,8 @@ def find_search(s):
     return rv
 
 class Schema(object):
-    def __init__(self):
-        self._conn = sqlite3.connect('test.db')
+    def __init__(self, dbf='transit.db'):
+        self._conn = sqlite3.connect(dbf)
 
     def current_time(self):
         return datetime.now()
@@ -320,8 +320,8 @@ class Trip(SObject):
                                  'SELECT * FROM pickups WHERE pickups.trip_id=:trip_id',
                                  { 'trip_id' : self.id})
     
-def make():
-    conn = sqlite3.connect('foo')
+def make(dbf='transit.db'):
+    conn = sqlite3.connect(dbf)
     cur = conn.cursor()
     cur.execute('CREATE TABLE stops (id INTEGER PRIMARY KEY AUTOINCREMENT, label TEXT, number INTEGER, name TEXT, lat FLOAT, lon FLOAT)')
     cur.execute('CREATE TABLE routes (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, route_type INTEGER)')
@@ -332,5 +332,12 @@ def make():
     conn.commit()
     cur.close()
     return conn
+
+def make_indexes(conn):
+    cur = conn.cursor()
+    cur.execute('CREATE INDEX idx_stop_id_pickups ON pickups (stop_id)')
+    cur.execute('CREATE INDEX idx_trip_id_pickups ON pickups (trip_id)')
+    conn.commit()
+    cur.close()
 
 

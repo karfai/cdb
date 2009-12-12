@@ -17,7 +17,14 @@
 
 from __future__ import with_statement
 
-from schema import *
+import curses.wrapper
+import dateutil.parser
+import lxml.etree
+import os
+import schema
+import sys
+import urllib2
+import zipfile
 from datetime import *
 
 def add_stop(cur, cache, parts):
@@ -54,7 +61,7 @@ def add_pickup(cur, cache, parts):
     
     cur.execute(
         'INSERT INTO pickups (arrival, departure, sequence, trip_id, stop_id) VALUES (?,?,?,?,?)',
-        [time_to_secs(parts[1]), time_to_secs(parts[2]), int(parts[4]), trip_id, stop_id]
+        [schema.time_to_secs(parts[1]), schema.time_to_secs(parts[2]), int(parts[4]), trip_id, stop_id]
         )
 
 def add_service_period(cur, cache, parts):
@@ -79,39 +86,60 @@ def add_service_exception(cur, cache, parts):
         'INSERT INTO service_exceptions (day, exception_type, service_period_id) VALUES (?,?,?)',
         [day, exception_type, service_period_id]
         )
-    
-def build(conn, cache, fuel):
-    (t, fn) = fuel
-    print t
-    with open('feed/%s.txt' % (t)) as f:
-        skip_one = True
-        lines = f.readlines()
-        steps = {}
-        for i in range(1, 10):
-            steps[int(len(lines) * (float(i)/10.0))] = '%i%%' % (i * 10)
 
-        lc = 0
-        for ln in lines:
-            if lc in steps:
-                print steps[lc]
+class Msgs:
+    def __init__(self, w):
+        self._w = w
+        self._y = 0
 
-            if not skip_one:
-                parts = [p.replace('"', '').strip() for p in unicode(ln.rstrip(), 'utf_8').split(',')]
-                cur = conn.cursor()
-                fn(cur, cache, parts)
-                cur.close()
-            else:
-                skip_one = False
-            lc += 1
-    conn.commit()
+    def show(self, m):
+        self._w.addstr(self._y, 0, m, curses.A_BOLD)
+        self._w.clrtoeol()
+        self._w.refresh()
+        self.next_line()
 
-conn = make()
-cache = {
-    'stops'  : {},
-    'service_periods'  : {},
-    'routes' : {},
-    'trips'  : {}
-}
+    def show_step(self, m, inc=True):
+        self._w.addstr(self._y, 2, '+ %s' % (m))
+        self._w.clrtoeol()
+        self._w.refresh()
+        if inc:
+            self.next_line()
+
+    def next_line(self):
+        self._y += 1
+
+class Builder:  
+    def __init__(self, conn, msg):
+        self._conn = conn
+        self._msg = msg
+        self._cache = {
+            'stops'  : {},
+            'service_periods'  : {},
+            'routes' : {},
+            'trips'  : {}
+        }
+
+    def build(self, fuel):
+        (t, fn) = fuel
+       
+        with open('feed/%s.txt' % (t)) as f:
+            skip_one = True
+            lines = f.readlines()
+            tlc = len(lines)
+            lc = 0
+
+            for ln in lines:
+                if not skip_one:
+                    self._msg.show_step('%s %i/%i' % (t.ljust(15), lc + 1, tlc), False)
+                    parts = [p.replace('"', '').strip() for p in unicode(ln.rstrip(), 'utf_8').split(',')]
+                    cur = self._conn.cursor()
+                    fn(cur, self._cache, parts)
+                    cur.close()
+                else:
+                    skip_one = False
+                lc += 1
+            self._msg.next_line()
+        self._conn.commit()
 
 builders = [
     ['calendar',       add_service_period],
@@ -122,4 +150,100 @@ builders = [
     ['stop_times',     add_pickup],
 ]
 
-[build(conn, cache, fuel) for fuel in builders]
+class StopUpdate:
+    def __init__(self, msg, tot):
+        self.m = 0
+        self._msg = msg
+        self._tot = tot
+        self._cur = 1
+
+    def update_stop(self, sch, in_id, ph_id, name):
+        stop = sch.find_stop_by_label(in_id)
+        if not stop:
+            self._msg.show_step('not found: %s (%i/%i)' % (in_id, self._cur, self._tot), False)
+            self.m += 1
+        else:
+            self._msg.show_step('updating: %s (%i/%i)' % (in_id, self._cur, self._tot), False)
+            stop.number = int(ph_id)
+            stop.update()
+        self._cur += 1
+
+def inject_stops(xfl, fl, msg):
+    msg.show('Injecting stop numbers from stops.xml')
+    sch = schema.Schema(fl)
+
+    msg.show_step('parsing %s' % (xfl))
+    tr = lxml.etree.parse(xfl)
+    elems = tr.xpath('/stops/marker')
+
+    upd = StopUpdate(msg, len(elems))
+    [upd.update_stop(sch, e.get('stopid'), e.get('id'), e.get('name')) for e in elems]
+    sch.commit()    
+
+def extract_member(z, mfl, msg):
+    msg.show_step(mfl)
+    z.extract(mfl, 'feed')
+
+def extract_feed(fl, msg):
+    msg.show('Extracting GTFS feed from %s' % (fl))
+    z = zipfile.ZipFile(fl, 'r')
+    members = ['agency.txt', 'calendar_dates.txt', 'calendar.txt', 'error.txt', 'routes.txt', 'stops.txt', 'stop_times.txt', 'trips.txt']
+    [extract_member(z, m, msg) for m in members]
+
+def download_latest(msg):
+    msg.show('Retrieving GTFS feed')
+    surl = 'http://www.gtfs-data-exchange.com/agency/oc-transpo/feed'
+
+    msg.show_step('downloading and parsing %s' % (surl))
+    xfl = urllib2.urlopen(surl);
+    tr = lxml.etree.parse(xfl)
+
+    # NOTE: need a "pretend" namespace to use xpath against the default ns 
+    # when defined. Yes, hacky, blame lxml && xapth
+    elems = tr.xpath('/x:feed/x:entry', namespaces={'x': 'http://www.w3.org/2005/Atom'})
+    cel = None
+    cdt = None
+    for el in elems:
+        ts = el.xpath('x:published/text()', namespaces={'x': 'http://www.w3.org/2005/Atom'})[0]
+        dt = dateutil.parser.parse(ts)
+        if not cdt or dt > cdt:
+            cdt = dt
+            cel = el
+    furl = cel.xpath("x:link[@rel='enclosure']/@href",
+                     namespaces={'x': 'http://www.w3.org/2005/Atom'})[0]
+
+    fn = '/tmp/octranspo.zip'
+    msg.show_step('downloading %s to %s' % (furl, fn))
+    with open(fn, 'w') as f:
+        f.write(urllib2.urlopen(furl).read())
+    return fn
+
+def run(ss, ofl):
+    msg = Msgs(ss)
+    if os.path.exists(ofl):
+        os.unlink(ofl)
+    
+    zfl = download_latest(msg)
+    extract_feed(zfl, msg)
+    os.unlink(zfl)
+
+    msg.show('Creating database in %s' % (ofl))
+    conn = schema.make(ofl)
+
+    msg.show('Converting GTFS feed to sqlite')    
+
+    b = Builder(conn, msg)
+    [b.build(fuel) for fuel in builders]
+
+    msg.show('Building indexes')
+    schema.make_indexes(conn)
+
+    inject_stops('stops.xml', ofl, msg)
+    msg.next_line()
+
+ofl = 'transit.db'
+if len(sys.argv) > 1:
+    ofl = sys.argv[1]
+
+curses.wrapper(run, ofl)
+
