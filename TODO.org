@@ -1,11 +1,13 @@
 * work queue
 ** DONE "hildonize"
    CLOSED: [2009-12-03 Thu 19:03]
-** TODO set_bridge() and Bridge creation should be in Model, poll()'d items should go through Model on the way to the UI objects
+** DONE set_bridge() and Bridge creation should be in Model, poll()'d items should go through Model on the way to the UI objects
+   CLOSED: [2009-12-12 Sat 13:21]
 ** DONE State.next() runs prev_state.finish(), new_state.start() before returning, this means that during Panel.next(), the current State in Panel will be prev_state(). A new State method, active() should be created to execute when the State is actually the current State.
    CLOSED: [2009-11-07 Sat 18:25]
+** DONE If coupling b/w Bridge and the UI layer is removed, then Model can be extended as a caching layer to improve queries or provide better interactivity based on already queried data for the State
+   CLOSED: [2009-12-12 Sat 13:21]
 ** TODO another state: Move to Nearby Stop
-** TODO If coupling b/w Bridge and the UI layer is removed, then Model can be extended as a caching layer to improve queries or provide better interactivity based on already queried data for the State
 ** TODO In StopSearch State, selecting a stop should show which routes serve the stop in a SelectedDetails (Label) widget
 ** TODO Stop.upcoming_pickups() should not list pickups for routes which terminate @ the current stop
 ** TODO Upcoming Stops displayed while riding should be time-offset based on the different b/w now() and the 

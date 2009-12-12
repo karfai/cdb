@@ -67,13 +67,14 @@ class StoreRequest(object):
         self._bridge = bridge
         self._repeats = repeats
 
-    def _show(self, l, fn):
+    def _show(self, info, l, fn):
         self._bridge.show_start()
-        [self._bridge.show(*fn(e)) for e in l]
+        resp = { 
+            'info'    : info,
+            'results' : [fn(e) for e in l]
+        }
+        self._bridge.enqueue(resp)
         self._bridge.show_finish()
-
-    def _show_info(self, o):
-        self._bridge.show_info(o)
 
     def repeats(self):
         return self._repeats
@@ -84,7 +85,8 @@ class StopSearch(StoreRequest):
         self._srch = srch
 
     def execute(self, st):
-        self._show(st.stop_search(self._srch),
+        self._show(None,
+                   st.stop_search(self._srch),
                    lambda stop: [stop.id, str(stop.number).zfill(4), stop.name])
 
 class UpcomingPickups(StoreRequest):
@@ -95,10 +97,10 @@ class UpcomingPickups(StoreRequest):
 
     def execute(self, st):
         stop = st.find_stop(self._stop_id)
-        self._show_info(stop)
-#        print "stop_id=%s; stop=%s" % (str(self._stop_id), str(stop))
-        self._show([(pu, pu.trip()) for pu in stop.upcoming_pickups(self._offset)],
-                   lambda (pu, tr): [tr.id, tr.route().name, tr.headsign, format_arrival(pu)])
+        self._show(
+            stop,
+            [(pu, pu.trip()) for pu in stop.upcoming_pickups(self._offset)],
+            lambda (pu, tr): [tr.id, tr.route().name, tr.headsign, format_arrival(pu)])
 
 class ShowTrip(StoreRequest):
     def __init__(self, bridge, trip_id):
@@ -107,7 +109,7 @@ class ShowTrip(StoreRequest):
 
     def execute(self, st):
         trip = st.find_trip(self._trip_id)
-        self._show_info(trip)
+        self._show(trip, [], None)
 
 class ShowStop(StoreRequest):
     def __init__(self, bridge, stop_id):
@@ -116,7 +118,7 @@ class ShowStop(StoreRequest):
 
     def execute(self, st):
         stop = st.find_stop(self._stop_id)
-        self._show_info(stop)
+        self._show(stop, [], None)
 
 class UpcomingStops(StoreRequest):
     def __init__(self, bridge, trip_id):
@@ -125,21 +127,15 @@ class UpcomingStops(StoreRequest):
 
     def execute(self, st):
         trip = st.find_trip(self._trip_id)
-        self._show_info(trip)
-        self._show([(pu, pu.stop()) for pu in trip.next_pickups_from_now(5)],
+        self._show(trip,
+                   [(pu, pu.stop()) for pu in trip.next_pickups_from_now(5)],
                    lambda (pu, st): [st.id, st.number, st.name, format_arrival(pu)])
             
 class Bridge(object):
-    def __init__(self, panel, tv):
-        self._tv = tv
-        self._panel = panel
-        self._info_q = Queue.Queue(0)
+    def __init__(self, model):
+        self._model = model
         self._results_q = Queue.Queue(0)
         self._results_ready = threading.Event()
-
-    def show_info(self, o):
-#        print "info < %s" % str(o)
-        self._info_q.put_nowait(o)
 
     def show_start(self):
         self._results_ready.clear()
@@ -148,46 +144,29 @@ class Bridge(object):
         self._results_ready.set()
         self.enable()
         
-    def show(self, *args):
-        self._results_q.put_nowait(args)
+    def enqueue(self, resp):
+        self._results_q.put_nowait(resp)
         
-    def clear(self):
-        self._tv.get_model().clear()
-
-    def disable(self):
-        self._panel.disable()
-
     def enable(self):
-        self._panel.enable()
+        self._model.enable()
 
-    def poll_results(self):
+    def poll_results(self, fn):
         self._results_ready.wait()
         empty = False
         while not empty:
             try:
-                args = self._results_q.get(False, 1)
-                if args is None:
+                resp = self._results_q.get(False, 1)
+                if resp is None:
                     break
-                
-#                print "result"
-                tm = self._tv.get_model()
-                it = tm.append()
-                [tm.set(it, i, args[i]) for i in range(0, len(args))]
-            except Queue.Empty:
-#                print "empty"
-                empty = True
 
-    def poll_info(self):
-        try:
-            o = self._info_q.get(False, 1)
-#            print "info > %s" % str(o)
-            self._panel.show_info(o)
-        except Queue.Empty:
-            pass
-#            print "empty"
+                fn(resp)
+            except Queue.Empty:
+                empty = True
         
 class Model(object):
-    def __init__(self):
+    def __init__(self, panel):
+        self._panel = panel
+        self._bridge = Bridge(self)
         self._q = Queue.Queue(0)
         self._e = threading.Event()
         self._th = SchemaThread(self._q, self._e)
@@ -197,13 +176,17 @@ class Model(object):
     def _reschedule(self, t, a, expect_results=True):
         if self._timer:
             self._timer.cancel()
-        self._timer = threading.Timer(t, lambda : self._schedule(a, expect_results))
+        self._timer = threading.Timer(t, lambda : self._timed_schedule(a, expect_results))
         self._timer.start()
+
+    def _timed_schedule(self, a, expect_results=True):
+        self._panel.expired()
+        self._schedule(a, expect_results)
         
     def _schedule(self, a, expect_results=True):
         if expect_results:
-            self._bridge.clear()
-            self._bridge.disable()
+            self._panel.clear()
+            self._panel.disable()
 
         self._q.put(a)
         if a.repeats():
@@ -213,9 +196,6 @@ class Model(object):
         if self._timer:
             self._timer.cancel()
             self._timer = None
-
-    def set_bridge(self, br):
-        self._bridge = br
 
     def set_stop(self, stop_id):
         self._stop_id = stop_id
@@ -227,8 +207,7 @@ class Model(object):
         return self._trip_id
 
     def poll(self):
-        self._bridge.poll_info()
-        self._bridge.poll_results()
+        self._bridge.poll_results(lambda resp: self._panel.show_response(resp))
             
     def stop_search(self, s):
         self._schedule(StopSearch(self._bridge, s))
@@ -245,69 +224,8 @@ class Model(object):
     def upcoming_stops_on_trip(self):
         self._schedule(UpcomingStops(self._bridge, self._trip_id))
 
-    def show_current_stop(self):
-        self._schedule(ShowStop(self._bridge, self._stop_id), False)
-
-    def show_current_trip(self):
-        self._schedule(ShowTrip(self._bridge, self._trip_id), False)
-
-    def bridge(self):
-        return self._bridge
-
-# GUI (view/control) elements
-
-# there is only ever a Panel which is re-built depending on state
-class InfoLabel(gtk.Label):
-    def __init__(self, text):
-        gtk.Label.__init__(self, None)
-        self.set_property('xalign', 0.0)
-
-    def change_text(self, text):
-        self.set_markup('<span size="x-large">%s</span>' % text)
-        
-class FindButton(gtk.Button):
-    def __init__(self, panel, loc):
-        gtk.Button.__init__(self, None, 'gtk-find')
-        self.connect('clicked', self.act_click, panel, loc)
-
-    def act_click(self, w, panel, loc):
-        loc.store_current()
-        panel.stop_search()
-
-class NextStateButton(gtk.Button):
-    def __init__(self, label, panel, index):
-        gtk.Button.__init__(self, label)
-        self.connect('clicked', self.act_click, panel, index)
-
-    def act_click(self, w, panel, index):
-        panel.next(index)
-
-class LocationEntry(gtk.ComboBoxEntry):
-    def __init__(self, panel):
-        gtk.ComboBoxEntry.__init__(self)
-        self.set_model(gtk.ListStore(str))
-        self.set_text_column(0)
-        self.entry().connect('activate', self.act_activate, panel)
-        self.connect('changed', self.act_changed, panel)
-        self._active = self.get_active()
-    
-    def clear(self):
-        self.entry().set_text('')
-
-    def entry(self):
-        return self.get_children()[0]
-
-    def store_current(self):
-        self.append_text(self.entry().get_text())
-        
-    def act_changed(self, w, panel):
-        if self._active != w.get_active():
-            self._active = w.get_active()
-            panel.stop_search()
-
-    def act_activate(self, w, panel):
-        self.store_current()
-        panel.stop_search()
+    def enable(self):
+        self._panel.enable()
 
 class State(object):
     def __init__(self, panel):
@@ -423,9 +341,8 @@ class SelectStop(State):
         super(SelectStop, self).active()
         self.panel().show_info()
 
-
     def update_on_start(self):
-        self.panel().clear_results()
+        self.panel().clear_all()
 
     def update_on_finish(self, exit_index):
         r = self.panel().selected_result()
@@ -483,6 +400,58 @@ class ResultsTreeView(gtk.TreeView):
         if w.get_property('sensitive'):
             self._panel.poll()
 
+class InfoLabel(gtk.Label):
+    def __init__(self, text):
+        gtk.Label.__init__(self, None)
+        self.set_property('xalign', 0.0)
+
+    def change_text(self, text):
+        self.set_markup('<span size="x-large">%s</span>' % text)
+        
+class FindButton(gtk.Button):
+    def __init__(self, panel, loc):
+        gtk.Button.__init__(self, None, 'gtk-find')
+        self.connect('clicked', self.act_click, panel, loc)
+
+    def act_click(self, w, panel, loc):
+        loc.store_current()
+        panel.stop_search()
+
+class NextStateButton(gtk.Button):
+    def __init__(self, label, panel, index):
+        gtk.Button.__init__(self, label)
+        self.connect('clicked', self.act_click, panel, index)
+
+    def act_click(self, w, panel, index):
+        panel.next(index)
+
+class LocationEntry(gtk.ComboBoxEntry):
+    def __init__(self, panel):
+        gtk.ComboBoxEntry.__init__(self)
+        self.set_model(gtk.ListStore(str))
+        self.set_text_column(0)
+        self.entry().connect('activate', self.act_activate, panel)
+        self.connect('changed', self.act_changed, panel)
+        self._active = self.get_active()
+    
+    def clear(self):
+        self.entry().set_text('')
+
+    def entry(self):
+        return self.get_children()[0]
+
+    def store_current(self):
+        self.append_text(self.entry().get_text())
+        
+    def act_changed(self, w, panel):
+        if self._active != w.get_active():
+            self._active = w.get_active()
+            panel.stop_search()
+
+    def act_activate(self, w, panel):
+        self.store_current()
+        panel.stop_search()
+
 class Panel(gtk.Window):
     def __init__(self):
         gtk.Window.__init__(self, gtk.WINDOW_TOPLEVEL)
@@ -492,11 +461,11 @@ class Panel(gtk.Window):
         self.set_border_width(6)
         self.connect('destroy', self.act_quit)
 
-        self._model = Model()
+        self._ready_for_results = threading.Event()
+        self._model = Model(self)
         self._state = SelectStop(self)
 
         self._build_contents()
-        self._model.set_bridge(Bridge(self, self._list))
         self._state.start()
         self.show_info()
 
@@ -563,13 +532,14 @@ class Panel(gtk.Window):
         return self._model
 
     def next(self, index):
-#        print "next"
         self._state = self._state.next(index)
         self._state.active()
-#        print "refresh"
+        self._ready_for_results.set()
         self.refresh()
-#        print "refreshed"
 
+    def clear(self):
+        self._list.get_model().clear()
+        
     def disable(self):
         self._list.set_sensitive(False)
         self._info.set_sensitive(False)
@@ -582,6 +552,9 @@ class Panel(gtk.Window):
         sel = (self._list.get_selection().count_selected_rows() > 0)
         [w.set_sensitive(sel) for w in self._exits.get_children()]
 
+    def expired(self):
+        self._ready_for_results.set()
+
     def change_exits(self):
         [self._exits.remove(w) for w in self._exits.get_children()]
         ex = self._state.exits()
@@ -592,13 +565,24 @@ class Panel(gtk.Window):
         self._info.change_text(self._state.get_info_text(o))
         self._frame.set_label(self._state.get_details_text())
 
-    def clear_results(self):
+    def show_result(self, results):
+        m = self._list.get_model()
+        it = m.append()
+        [m.set(it, i, results[i]) for i in range(0, len(results))]
+
+    def show_response(self, resp):
+        self.show_info(resp['info'])
+        [self.show_result(r) for r in resp['results']]
+
+    def clear_all(self):
         self._loc.clear()
         self._list.get_model().clear()
 
     def poll(self):
+        self._ready_for_results.wait()
         self.model().poll()
         self.select_active()
+        self._ready_for_results.clear()
         
     def refresh(self):
         self.show_all()
@@ -630,6 +614,7 @@ class Panel(gtk.Window):
 
     def stop_search(self):
         self._model.stop_search(self.get_query_text())        
+        self._ready_for_results.set()
 
     def upcoming_pickups_at_stop(self, offset):
         self._model.upcoming_pickups_at_stop(offset)
