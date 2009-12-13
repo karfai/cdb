@@ -15,7 +15,7 @@
 # You should have received a copy of the GNU General Public License
 # along with voyageur.  If not, see <http://www.gnu.org/licenses/>.
 
-import re, sqlite3
+import os, re, sqlite3
 from datetime import *
 
 def time_to_secs(ts):
@@ -105,6 +105,9 @@ class ORM(object):
             rv = l[0]
         return rv
 
+    def cursor(self):
+        return self._conn.cursor()
+
 class Routing(ORM):
     def __init__(self, dbf='transit.db'):
         super(Routing, self).__init__(dbf)
@@ -174,6 +177,41 @@ class Routing(ORM):
                                 'SELECT stops.* FROM stops WHERE %s' % (wh))
         return rv
 
+class Local(ORM):
+    def __init__(self):
+        super(Local, self).__init__('local.db')
+
+    def make(self):
+        cur = self.cursor()
+        cur.execute('CREATE TABLE searches (id INTEGER PRIMARY KEY AUTOINCREMENT, text TEXT)')
+        self.commit()
+        cur.close()
+
+    def searches(self):
+        return self.find_many(Search,
+                              'SELECT * FROM searches',
+                              {})
+
+    def have_search(self, text):
+        s = self.find_one(Search,
+                          'SELECT * FROM searches WHERE text=:text',
+                          { 'text' : text})
+        return s is not None
+
+    def save_search(self, text):
+        if not self.have_search(text):
+            cur = self.cursor()
+            cur.execute('INSERT INTO searches (text) VALUES (?)', [text,])
+            self.commit()
+            cur.close()
+
+def local():
+    exists = os.path.exists('local.db')
+    rv = Local()
+    if not exists:
+        rv.make()
+    return rv
+
 class SObject(object):
     def __init__(self, orm, id):
         self.orm = orm
@@ -181,6 +219,11 @@ class SObject(object):
 
     def update(self):
         self.orm.update(self.table(), self.id, self.fields())
+
+class Search(SObject):
+    def __init__(self, orm, id, text):
+        super(Search, self).__init__(orm, id)
+        self.text = text
 
 class ServicePeriod(SObject):
     def __init__(self, orm, id, days, start, finish):

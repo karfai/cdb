@@ -44,21 +44,21 @@ def format_stop(stop):
 def format_trip(trip):
     return '%s %s' % (trip.route().name, trip.headsign)
 
-class SchemaThread(threading.Thread):
+class RoutingThread(threading.Thread):
     def __init__(self, q, e):
         threading.Thread.__init__(self)
         self._q = q
         self._e = e
         
     def run(self):
-        self._store = schema.Routing()
+        self._routing = schema.Routing()
         while not self._e.is_set():
             try:
                 m = self._q.get(False, 1)
                 if m is None:
                     break
                 
-                m.execute(self._store)
+                m.execute(self._routing)
             except Queue.Empty:
                 pass
 
@@ -84,9 +84,9 @@ class StopSearch(StoreRequest):
         super(StopSearch, self).__init__(bridge, False)
         self._srch = srch
 
-    def execute(self, st):
+    def execute(self, routing):
         self._show(None,
-                   st.stop_search(self._srch),
+                   routing.stop_search(self._srch),
                    lambda stop: [stop.id, str(stop.number).zfill(4), stop.name])
 
 class UpcomingPickups(StoreRequest):
@@ -95,8 +95,8 @@ class UpcomingPickups(StoreRequest):
         self._stop_id = stop_id
         self._offset = offset
 
-    def execute(self, st):
-        stop = st.find_stop(self._stop_id)
+    def execute(self, routing):
+        stop = routing.find_stop(self._stop_id)
         self._show(
             stop,
             [(pu, pu.trip()) for pu in stop.upcoming_pickups(self._offset)],
@@ -107,8 +107,8 @@ class ShowTrip(StoreRequest):
         super(ShowTrip, self).__init__(bridge)
         self._trip_id = trip_id
 
-    def execute(self, st):
-        trip = st.find_trip(self._trip_id)
+    def execute(self, routing):
+        trip = routing.find_trip(self._trip_id)
         self._show(trip, [], None)
 
 class ShowStop(StoreRequest):
@@ -116,8 +116,8 @@ class ShowStop(StoreRequest):
         super(ShowStop, self).__init__(bridge)
         self._stop_id = stop_id
 
-    def execute(self, st):
-        stop = st.find_stop(self._stop_id)
+    def execute(self, routing):
+        stop = routing.find_stop(self._stop_id)
         self._show(stop, [], None)
 
 class UpcomingStops(StoreRequest):
@@ -125,12 +125,12 @@ class UpcomingStops(StoreRequest):
         super(UpcomingStops, self).__init__(bridge)
         self._trip_id = trip_id
 
-    def execute(self, st):
-        trip = st.find_trip(self._trip_id)
+    def execute(self, routing):
+        trip = routing.find_trip(self._trip_id)
         self._show(trip,
                    [(pu, pu.stop()) for pu in trip.next_pickups_from_now(5)],
                    lambda (pu, st): [st.id, st.number, st.name, format_arrival(pu)])
-            
+
 class Bridge(object):
     def __init__(self, model):
         self._model = model
@@ -169,9 +169,12 @@ class Model(object):
         self._bridge = Bridge(self)
         self._q = Queue.Queue(0)
         self._e = threading.Event()
-        self._th = SchemaThread(self._q, self._e)
+        self._th = RoutingThread(self._q, self._e)
         self._th.start()
         self._timer = None
+        # for now, the "local" db isn't behind the thread barrier
+        # if it becomes slow, we'll move it there
+        self._local = schema.local()
 
     def _reschedule(self, t, a, expect_results=True):
         if self._timer:
@@ -226,6 +229,12 @@ class Model(object):
 
     def enable(self):
         self._panel.enable()
+
+    def save_search(self, text):
+        self._local.save_search(text)
+
+    def searches(self, fn):
+        [fn(s.text) for s in self._local.searches()]
 
 class State(object):
     def __init__(self, panel):
@@ -343,6 +352,7 @@ class SelectStop(State):
 
     def update_on_start(self):
         self.panel().clear_all()
+        self.panel().update_searches()
 
     def update_on_finish(self, exit_index):
         r = self.panel().selected_result()
@@ -408,15 +418,6 @@ class InfoLabel(gtk.Label):
     def change_text(self, text):
         self.set_markup('<span size="x-large">%s</span>' % text)
         
-class FindButton(gtk.Button):
-    def __init__(self, panel, loc):
-        gtk.Button.__init__(self, None, 'gtk-find')
-        self.connect('clicked', self.act_click, panel, loc)
-
-    def act_click(self, w, panel, loc):
-        loc.store_current()
-        panel.stop_search()
-
 class NextStateButton(gtk.Button):
     def __init__(self, label, panel, index):
         gtk.Button.__init__(self, label)
@@ -425,6 +426,15 @@ class NextStateButton(gtk.Button):
     def act_click(self, w, panel, index):
         panel.next(index)
 
+class FindButton(gtk.Button):
+    def __init__(self, panel, loc):
+        gtk.Button.__init__(self, None, 'gtk-find')
+        self.connect('clicked', self.act_click, panel, loc)
+
+    def act_click(self, w, panel, loc):
+        loc.store_current(panel.model())
+        panel.stop_search()
+
 class LocationEntry(gtk.ComboBoxEntry):
     def __init__(self, panel):
         gtk.ComboBoxEntry.__init__(self)
@@ -432,16 +442,27 @@ class LocationEntry(gtk.ComboBoxEntry):
         self.set_text_column(0)
         self.entry().connect('activate', self.act_activate, panel)
         self.connect('changed', self.act_changed, panel)
+        self.connect("notify::sensitive", self.act_notify)
         self._active = self.get_active()
     
+    def add(self, text):
+        matched = False
+        if len([True for e in self.get_model() if e[0] == text]) == 0:
+            self.append_text(text)        
+
     def clear(self):
         self.entry().set_text('')
+
+    def clear_searches(self):
+        self.get_model().clear()
 
     def entry(self):
         return self.get_children()[0]
 
-    def store_current(self):
-        self.append_text(self.entry().get_text())
+    def store_current(self, model):
+        text = self.entry().get_text()
+        model.save_search(text)
+        self.add(text)
         
     def act_changed(self, w, panel):
         if self._active != w.get_active():
@@ -449,8 +470,12 @@ class LocationEntry(gtk.ComboBoxEntry):
             panel.stop_search()
 
     def act_activate(self, w, panel):
-        self.store_current()
+        self.store_current(panel.model())
         panel.stop_search()
+
+    def act_notify(self, w, spec):
+        if w.get_property('sensitive'):
+            self._panel.poll()
 
 class Panel(gtk.Window):
     def __init__(self):
@@ -571,8 +596,10 @@ class Panel(gtk.Window):
         [m.set(it, i, results[i]) for i in range(0, len(results))]
 
     def show_response(self, resp):
-        self.show_info(resp['info'])
-        [self.show_result(r) for r in resp['results']]
+        if 'info' in resp:
+            self.show_info(resp['info'])
+        if 'results' in resp:
+            [self.show_result(r) for r in resp['results']]
 
     def clear_all(self):
         self._loc.clear()
@@ -621,6 +648,10 @@ class Panel(gtk.Window):
 
     def upcoming_stops_on_trip(self):
         self._model.upcoming_stops_on_trip()
+
+    def update_searches(self):
+        self._loc.clear_searches()
+        self._model.searches(lambda text: self._loc.add(text))
 
 gtk.gdk.threads_init()
 w = Panel()
