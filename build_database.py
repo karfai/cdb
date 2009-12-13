@@ -58,7 +58,7 @@ def add_trip(cur, cache, parts):
 def add_pickup(cur, cache, parts):
     trip_id = cache['trips'][parts[0]]
     stop_id = cache['stops'][parts[3]]
-    
+
     cur.execute(
         'INSERT INTO pickups (arrival, departure, sequence, trip_id, stop_id) VALUES (?,?,?,?,?)',
         [schema.time_to_secs(parts[1]), schema.time_to_secs(parts[2]), int(parts[4]), trip_id, stop_id]
@@ -218,14 +218,18 @@ def download_latest(msg):
         f.write(urllib2.urlopen(furl).read())
     return fn
 
-def run(ss, ofl):
+def run(ss, ofl, zfl):
     msg = Msgs(ss)
     if os.path.exists(ofl):
         os.unlink(ofl)
     
-    zfl = download_latest(msg)
+    rm_zfl = False
+    if zfl is None:
+        zfl = download_latest(msg)
+        rm_zfl = True
     extract_feed(zfl, msg)
-    os.unlink(zfl)
+    if rm_zfl:
+        os.unlink(zfl)
 
     msg.show('Creating database in %s' % (ofl))
     conn = schema.make(ofl)
@@ -242,8 +246,12 @@ def run(ss, ofl):
     msg.next_line()
 
 ofl = 'transit.db'
+zfl = None
 if len(sys.argv) > 1:
     ofl = sys.argv[1]
 
-curses.wrapper(run, ofl)
+if len(sys.argv) > 2:
+    zfl = sys.argv[2]
+
+curses.wrapper(run, ofl, zfl)
 
