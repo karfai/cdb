@@ -1,4 +1,5 @@
 * work queue
+** TODO (BUG) cannot end a trip if there are no upcoming pickups while waiting at a Stop
 ** DONE "hildonize"
    CLOSED: [2009-12-03 Thu 19:03]
 ** DONE set_bridge() and Bridge creation should be in Model, poll()'d items should go through Model on the way to the UI objects
