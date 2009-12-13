@@ -170,7 +170,7 @@ class StopUpdate:
 
 def inject_stops(xfl, fl, msg):
     msg.show('Injecting stop numbers from stops.xml')
-    sch = schema.Schema(fl)
+    sch = schema.Routing(fl)
 
     msg.show_step('parsing %s' % (xfl))
     tr = lxml.etree.parse(xfl)

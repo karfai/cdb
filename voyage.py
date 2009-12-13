@@ -51,7 +51,7 @@ class SchemaThread(threading.Thread):
         self._e = e
         
     def run(self):
-        self._store = schema.Schema()
+        self._store = schema.Routing()
         while not self._e.is_set():
             try:
                 m = self._q.get(False, 1)

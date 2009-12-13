@@ -66,27 +66,9 @@ def find_search(s):
             
     return rv
 
-class Schema(object):
-    def __init__(self, dbf='transit.db'):
+class ORM(object):
+    def __init__(self, dbf):
         self._conn = sqlite3.connect(dbf)
-
-    def current_time(self):
-        return datetime.now()
-
-    def current_service_period(self):
-        n = self.current_time()
-        fl = (1 << n.weekday())
-        day = n.date().toordinal()
-        ex = self.find_service_exception(day)
-        rv = None
-        if ex:
-            rv = ex.service_period()
-        else:
-            rv = self.find_and_filter_one(ServicePeriod,
-                                           'SELECT * FROM service_periods WHERE start<=:day and finish>=:day',
-                                           { 'day' : day},
-                                           lambda sp : sp.days & fl and True or False)
-        return rv
 
     def update(self, tbl, id, fields):
         fl = ','.join(['%s=:%s' % (n, n) for n in fields])
@@ -98,15 +80,6 @@ class Schema(object):
 
     def commit(self):
         self._conn.commit()        
-
-    def get_stop_number_stat(self):
-        rv = [0, 0]
-        for st in self.find_all_stops():
-            if st.number == 0:
-                rv[1] += 1
-            else:
-                rv[0] += 1
-        return rv
 
     def find_one(self, klass, q, args):
         c = self._conn.cursor()
@@ -130,6 +103,37 @@ class Schema(object):
         l = [o for o in self.find_many(klass, q, args) if fn(o)]
         if len(l) > 0:
             rv = l[0]
+        return rv
+
+class Routing(ORM):
+    def __init__(self, dbf='transit.db'):
+        super(Routing, self).__init__(dbf)
+
+    def current_time(self):
+        return datetime.now()
+
+    def current_service_period(self):
+        n = self.current_time()
+        fl = (1 << n.weekday())
+        day = n.date().toordinal()
+        ex = self.find_service_exception(day)
+        rv = None
+        if ex:
+            rv = ex.service_period()
+        else:
+            rv = self.find_and_filter_one(ServicePeriod,
+                                           'SELECT * FROM service_periods WHERE start<=:day and finish>=:day',
+                                           { 'day' : day},
+                                           lambda sp : sp.days & fl and True or False)
+        return rv
+
+    def get_stop_number_stat(self):
+        rv = [0, 0]
+        for st in self.find_all_stops():
+            if st.number == 0:
+                rv[1] += 1
+            else:
+                rv[0] += 1
         return rv
 
     def find_service_exception(self, day):
@@ -171,37 +175,37 @@ class Schema(object):
         return rv
 
 class SObject(object):
-    def __init__(self, sc, id):
-        self.sc = sc
+    def __init__(self, orm, id):
+        self.orm = orm
         self.id = id
 
     def update(self):
-        self.sc.update(self.table(), self.id, self.fields())
+        self.orm.update(self.table(), self.id, self.fields())
 
 class ServicePeriod(SObject):
-    def __init__(self, sc, id, days, start, finish):
-        super(ServicePeriod, self).__init__(sc, id)
+    def __init__(self, orm, id, days, start, finish):
+        super(ServicePeriod, self).__init__(orm, id)
 
         self.days = days
         self.start = start
         self.finish = finish
     
 class ServiceException(SObject):
-    def __init__(self, sc, id, day, exception_type, service_period_id):
-        super(ServiceException, self).__init__(sc, id)
+    def __init__(self, orm, id, day, exception_type, service_period_id):
+        super(ServiceException, self).__init__(orm, id)
 
         self.day = day
         self.exception_type = exception_type
         self.service_period_id = service_period_id
 
     def service_period(self):
-        return self.sc.find_one(ServicePeriod,
+        return self.orm.find_one(ServicePeriod,
                                 'SELECT * FROM service_periods WHERE id=:id',
                                 { 'id' : self.service_period_id})
 
 class Pickup(SObject):
-    def __init__(self, sc, id, arrival, departure, sequence, trip_id, stop_id):
-        super(Pickup, self).__init__(sc, id)
+    def __init__(self, orm, id, arrival, departure, sequence, trip_id, stop_id):
+        super(Pickup, self).__init__(orm, id)
         self.arrival = arrival
         self.departure = departure
         self.sequence = sequence
@@ -222,14 +226,14 @@ class Pickup(SObject):
         return (self.arrival - n) / 60
     
     def trip(self):
-        return self.sc.find_trip(self.trip_id)
+        return self.orm.find_trip(self.trip_id)
 
     def stop(self):
-        return self.sc.find_stop(self.stop_id)
+        return self.orm.find_stop(self.stop_id)
 
 class Stop(SObject):
-    def __init__(self, sc, id, label, number, name, lat, lon):
-        super(Stop, self).__init__(sc, id)
+    def __init__(self, orm, id, label, number, name, lat, lon):
+        super(Stop, self).__init__(orm, id)
         self.label = label
         self.number = number
         self.name = name
@@ -250,35 +254,35 @@ class Stop(SObject):
     def upcoming_pickups(self, offset):
         t = secs_elapsed_today()
         r = range(t - 5 * 60, (t + offset * 60) + 1)
-        sp = self.sc.current_service_period()
+        sp = self.orm.current_service_period()
         rv = [pu for pu in self.pickups() if pu.in_service(sp) and pu.arrives_in_range(r)]
         rv.sort(cmp=lambda a,b: cmp(a.arrival, b.arrival))
         return rv
 
     def trips(self):
-        return self.sc.find_many(Trip,
+        return self.orm.find_many(Trip,
                                  'SELECT trips.* FROM trips,pickups WHERE trips.id=pickups.trip_id AND pickups.stop_id=:id',
                                  { 'id' : self.id})
 
     def pickups(self):
-        return self.sc.find_many(Pickup,
+        return self.orm.find_many(Pickup,
                                  'SELECT * FROM pickups WHERE pickups.stop_id=:id',
                                  { 'id' : self.id})
         
 class Route(SObject):
-    def __init__(self, sc, id, name, ty):
-        super(Route, self).__init__(sc, id)
+    def __init__(self, orm, id, name, ty):
+        super(Route, self).__init__(orm, id)
         self.name = name
         self.type = ty
 
     def trips(self):
-        return self.sc.find_many(Trip,
+        return self.orm.find_many(Trip,
                                  'SELECT * FROM trips WHERE trips.route_id=:id',
                                  { 'id' : self.id})
 
 class Trip(SObject):
-    def __init__(self, sc, id, headsign, block, route_id, service_period_id):
-        super(Trip, self).__init__(sc, id)
+    def __init__(self, orm, id, headsign, block, route_id, service_period_id):
+        super(Trip, self).__init__(orm, id)
 
         self.headsign = headsign
         self.block = block
@@ -301,22 +305,22 @@ class Trip(SObject):
         return [pu for pu in self._pickups_in_sequence() if pu.sequence > stpu.sequence][0:limit]
 
     def route(self):
-        return self.sc.find_one(Route,
+        return self.orm.find_one(Route,
                                 'SELECT * FROM routes WHERE id=:id',
                                 { 'id' : self.route_id})
 
     def service_period(self):
-        return self.sc.find_one(ServicePeriod,
+        return self.orm.find_one(ServicePeriod,
                                 'SELECT * FROM service_periods WHERE id=:id',
                                 { 'id' : self.service_perid_id})
 
     def stops(self):
-        return self.sc.find_many(Stop,
+        return self.orm.find_many(Stop,
                                  'SELECT stops.* FROM stops,pickups WHERE stops.id=pickups.stop_id AND pickups.trip_id=:id',
                                  { 'id' : self.id})
 
     def pickups(self):
-        return self.sc.find_many(Pickup,
+        return self.orm.find_many(Pickup,
                                  'SELECT * FROM pickups WHERE pickups.trip_id=:trip_id',
                                  { 'trip_id' : self.id})
     
