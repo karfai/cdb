@@ -264,6 +264,9 @@ class Pickup(SObject):
     def arrives_in_range(self, r):
         return self.arrival in r
 
+    def is_last(self):
+        return 0 == len(self.trip().next_pickups_from_pickup(self, 1))
+
     def minutes_until_arrival(self):
         n = secs_elapsed_today()
         return (self.arrival - n) / 60

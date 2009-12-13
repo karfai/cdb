@@ -32,10 +32,13 @@ def format_minutes(m):
 def format_arrival(pu):
     rv = 'now'
     m = pu.minutes_until_arrival()
+    lt = ''
+    if pu.is_last():
+        lt = ' (last)'
     if m < 0:
-        rv = 'Expected %s ago' % format_minutes(abs(m))
+        rv = 'Expected %s ago%s' % (format_minutes(abs(m)), lt)
     elif m > 0:
-        rv = 'Arriving in %s' % format_minutes(m)
+        rv = 'Arriving in %s%s' % (format_minutes(m), lt)
     return rv
 
 def format_stop(stop):
@@ -99,7 +102,7 @@ class UpcomingPickups(StoreRequest):
         stop = routing.find_stop(self._stop_id)
         self._show(
             stop,
-            [(pu, pu.trip()) for pu in stop.upcoming_pickups(self._offset)],
+            [(pu, pu.trip()) for pu in stop.upcoming_pickups(self._offset) if not pu.is_last()],
             lambda (pu, tr): [tr.id, tr.route().name, tr.headsign, format_arrival(pu)])
 
 class ShowTrip(StoreRequest):
