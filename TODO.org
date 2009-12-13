@@ -7,14 +7,17 @@
    CLOSED: [2009-11-07 Sat 18:25]
 ** DONE If coupling b/w Bridge and the UI layer is removed, then Model can be extended as a caching layer to improve queries or provide better interactivity based on already queried data for the State
    CLOSED: [2009-12-12 Sat 13:21]
-** TODO another state: Move to Nearby Stop
+** TODO another state: NearbyStops shown when waiting for buses (WaitAtStop); it should show Stops within 400m and act much like StopSearch w/o the location entry
 ** TODO In StopSearch State, selecting a stop should show which routes serve the stop in a SelectedDetails (Label) widget
-** TODO Stop.upcoming_pickups() should not list pickups for routes which terminate @ the current stop
+** DONE Stop.upcoming_pickups() should not list pickups for routes which terminate @ the current stop
+   CLOSED: [2009-12-12 Sat 20:51]
 ** TODO Upcoming Stops displayed while riding should be time-offset based on the different b/w now() and the 
    expected pickup time. This assumes that the inter-stop travel time in the schedule is consistent even if
    the pickup is late.
-** TODO While riding, if a Stop is the last stop for the trip, show an indication.
-** TODO persist search history
+** DONE While riding, if a Stop is the last stop for the trip, show an indication.
+   CLOSED: [2009-12-12 Sat 20:51]
+** DONE persist search history
+   CLOSED: [2009-12-12 Sat 20:24]
 ** DONE There's something odd going on w/Timers on the device - are they cancelled at the correct time?
    CLOSED: [2009-11-07 Sat 17:52]
 ** In the Search Panel, show info text under the list which list the routes servicing the stop when an item is selected
