@@ -343,9 +343,9 @@ class Trip(SObject):
         rv.sort(cmp=lambda a,b: cmp(a.sequence, b.sequence))
         return rv
 
-    def next_pickups_from_now(self, limit):
-        n = secs_elapsed_today()
-        return [pu for pu in self._pickups_in_sequence() if pu.arrival >= n][0:limit]
+    def next_pickups_from_now(self, limit, offset=0):
+        tm = secs_elapsed_today() - offset
+        return [pu for pu in self._pickups_in_sequence() if pu.arrival >= tm][0:limit]
 
     def next_pickups_from_pickup(self, stpu, limit):
         return [pu for pu in self._pickups_in_sequence() if pu.sequence > stpu.sequence][0:limit]
@@ -358,7 +358,7 @@ class Trip(SObject):
     def service_period(self):
         return self.orm.find_one(ServicePeriod,
                                 'SELECT * FROM service_periods WHERE id=:id',
-                                { 'id' : self.service_perid_id})
+                                { 'id' : self.service_period_id})
 
     def stops(self):
         return self.orm.find_many(Stop,
