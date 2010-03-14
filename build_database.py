@@ -70,21 +70,18 @@ def add_service_period(cur, cache, parts):
     for i in parts[1:8]:
         days |= (int(i) << p)
         p += 1
-    st = datetime.strptime(parts[8], '%Y%m%d').toordinal()
-    fin = datetime.strptime(parts[9], '%Y%m%d').toordinal()
     cur.execute(
         'INSERT INTO service_periods (days, start, finish) VALUES (?,?,?)',
-        [days, st, fin]
+        [days, parts[8], parts[9]]
         )
     cache['service_periods'][parts[0]] = cur.lastrowid
 
 def add_service_exception(cur, cache, parts):
     service_period_id = cache['service_periods'][parts[0]]
-    day = datetime.strptime(parts[1], '%Y%m%d').toordinal()
     exception_type = int(parts[2])
     cur.execute(
         'INSERT INTO service_exceptions (day, exception_type, service_period_id) VALUES (?,?,?)',
-        [day, exception_type, service_period_id]
+        [parts[1], exception_type, service_period_id]
         )
 
 class Msgs:

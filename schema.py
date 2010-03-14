@@ -118,16 +118,16 @@ class Routing(ORM):
     def current_service_period(self):
         n = self.current_time()
         fl = (1 << n.weekday())
-        day = n.date().toordinal()
-        ex = self.find_service_exception(day)
+        day = n.date()
+        ex = self.find_service_exception(day.strftime('%Y%m%d'))
         rv = None
         if ex:
             rv = ex.service_period()
         else:
             rv = self.find_and_filter_one(ServicePeriod,
-                                           'SELECT * FROM service_periods WHERE start<=:day and finish>=:day',
-                                           { 'day' : day},
-                                           lambda sp : sp.days & fl and True or False)
+                                           'SELECT * FROM service_periods',
+                                           { },
+                                           lambda sp : sp.days & fl and sp.in_service(day))
         return rv
 
     def get_stop_number_stat(self):
@@ -232,6 +232,11 @@ class ServicePeriod(SObject):
         self.days = days
         self.start = start
         self.finish = finish
+
+    def in_service(self, dt):
+        st = datetime.strptime(self.start, '%Y%m%d').toordinal()
+        en = datetime.strptime(self.finish, '%Y%m%d').toordinal()
+        return dt.toordinal() >= st and dt.toordinal() <= en
     
 class ServiceException(SObject):
     def __init__(self, orm, id, day, exception_type, service_period_id):
@@ -377,8 +382,8 @@ def make(dbf='transit.db'):
     cur.execute('CREATE TABLE routes (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, route_type INTEGER)')
     cur.execute('CREATE TABLE trips (id INTEGER PRIMARY KEY AUTOINCREMENT, headsign TEXT, block INTEGER, route_id INTEGER, service_period_id INTEGER)')
     cur.execute('CREATE TABLE pickups (id INTEGER PRIMARY KEY AUTOINCREMENT, arrival INTEGER, departure INTEGER, sequence INTEGER, trip_id INTEGER, stop_id INTEGER)')
-    cur.execute('CREATE TABLE service_periods (id INTEGER PRIMARY KEY AUTOINCREMENT, days INTEGER, start INTEGER, finish INTEGER)')
-    cur.execute('CREATE TABLE service_exceptions (id INTEGER PRIMARY KEY AUTOINCREMENT, day INTEGER, exception_type INTEGER, service_period_id INTEGER)')
+    cur.execute('CREATE TABLE service_periods (id INTEGER PRIMARY KEY AUTOINCREMENT, days INTEGER, start TEXT, finish TEXT)')
+    cur.execute('CREATE TABLE service_exceptions (id INTEGER PRIMARY KEY AUTOINCREMENT, day TEXT, exception_type INTEGER, service_period_id INTEGER)')
     conn.commit()
     cur.close()
     return conn
